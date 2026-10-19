@@ -7,7 +7,7 @@
 # (README block + docs/) to the public repository using the DASHBOARD_PUSH_TOKEN secret.
 #
 # Required secret (Settings > Secrets and variables > Actions > New repository secret):
-#   DASHBOARD_PUSH_TOKEN  = fine-grained PAT, repository access: tus4/test only,
+#   DASHBOARD_PUSH_TOKEN  = fine-grained PAT, repository access: tus4/collabo only,
 #                           repository permission "Contents: Read and write".
 name: Publish dashboard
 
@@ -37,7 +37,7 @@ permissions:
   contents: read                                  # this workflow never writes to the private repository
 
 env:
-  PUBLIC_REPO: tus4/test          # public repository: tooling lives here, output is pushed here
+  PUBLIC_REPO: tus4/collabo          # public repository: tooling lives here, output is pushed here
   PYTHON_VERSION: '3.11'
 
 jobs:

@@ -14,6 +14,8 @@ from .timeseries import public_market, series_payload
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
 TEMPLATE_INDEX = TEMPLATE_DIR / "index.html"
 TEMPLATE_MARKET = TEMPLATE_DIR / "market.html"
+TEMPLATE_PLATFORM = TEMPLATE_DIR / "platform.html"
+PLATFORM_ASSETS = TEMPLATE_DIR / "platform"
 
 
 def write_site(
@@ -28,9 +30,10 @@ def write_site(
     ``dashboard.js`` assigns the same JSON to ``window.DASHBOARD_DATA`` so the page
     works from ``file://`` (no fetch/XHR needed); ``dashboard.json`` is for other consumers.
 
-    With a market dataset the time-series dashboard becomes ``index.html`` (it fetches
-    ``data/market.json`` and one ``data/series/<id>.json`` per plotted series) and the
-    table dashboard moves to ``tables.html``.
+    With a market dataset the analysis platform becomes ``index.html``. The existing
+    time-series dashboard stays available at ``market.html`` and the table dashboard
+    at ``tables.html``. Platform assets are copied on every rebuild so data refreshes
+    retain the application. All three pages share the public market payloads.
     """
     if not template_index.is_file():
         raise BuildError(f"dashboard template not found: {template_index}")
@@ -41,7 +44,11 @@ def write_site(
     if has_market:
         if not template_market.is_file():
             raise BuildError(f"dashboard template not found: {template_market}")
-        shutil.copyfile(template_market, docs_dir / "index.html")
+        if not TEMPLATE_PLATFORM.is_file() or not PLATFORM_ASSETS.is_dir():
+            raise BuildError("analysis platform template or assets not found")
+        shutil.copyfile(TEMPLATE_PLATFORM, docs_dir / "index.html")
+        shutil.copyfile(template_market, docs_dir / "market.html")
+        shutil.copytree(PLATFORM_ASSETS, docs_dir / "platform", dirs_exist_ok=True)
         shutil.copyfile(template_index, docs_dir / "tables.html")
     else:
         shutil.copyfile(template_index, docs_dir / "index.html")

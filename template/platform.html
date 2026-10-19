@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b111b">
+<meta name="description" content="COLLABO 자산배분, 환헤지, CMA, 환율전망 분석 플랫폼">
+<title>COLLABO | Investment Analytics</title>
+<link rel="stylesheet" href="platform/styles.css">
+<script src="platform/analytics.js" defer></script>
+<script src="platform/fx.js" defer></script>
+<script src="platform/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+<aside class="sidebar">
+  <a href="#allocation" class="brand" aria-label="COLLABO 홈"><span class="brand-mark">C<span></span></span><span>COLLABO<small>INVESTMENT ANALYTICS</small></span></a>
+  <div class="nav-label">ANALYSIS WORKSPACE</div>
+  <nav aria-label="분석 모듈">
+    <button class="nav-item active" data-tab="allocation" aria-current="page"><span class="nav-symbol">◈</span>자산배분<span class="nav-arrow">↗</span></button>
+    <button class="nav-item" data-tab="hedge"><span class="nav-symbol">⇄</span>환헤지<span class="nav-arrow">↗</span></button>
+    <button class="nav-item" data-tab="cma"><span class="nav-symbol">▦</span>CMA<span class="nav-arrow">↗</span></button>
+    <button class="nav-item" data-tab="fx"><span class="nav-symbol">⌁</span>환율전망<span class="nav-arrow">↗</span></button>
+  </nav>
+  <a class="market-link" href="market.html"><span>시장 데이터</span><span>↗</span></a>
+  <div class="sidebar-bottom"><span class="status-dot"></span>KRW BASED RESEARCH<small>자산 가정 → 배분 → 환위험</small></div>
+</aside>
+<div class="workspace">
+<header class="topbar"><span>RESEARCH PLATFORM <span class="top-divider">/</span> <span id="breadcrumb">PORTFOLIO</span></span><div class="data-state"><span class="data-date" id="global-date">데이터 확인 중</span><span class="badge warning" id="stale-badge" hidden>업데이트 필요</span></div></header>
+<main id="main">
+  <div id="data-error" class="notice error" role="alert" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <section id="view-allocation" class="view" aria-labelledby="allocation-title">
+    <div class="page-heading"><div><div class="eyebrow">ASSET ALLOCATION</div><h1 id="allocation-title">자산배분</h1><p>목표와 제약을 연결하는 포트폴리오 분석</p></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
+    <div class="market-strip" id="market-strip"><span class="muted">시장 데이터 불러오는 중…</span></div>
+    <div class="section-title"><h2>Portfolio overview</h2><span class="badge assumption">사용자 가정 기반 · 연율</span></div>
+    <div class="metric-grid" id="portfolio-metrics"></div>
+    <div id="model-error" class="notice error" role="alert" hidden></div>
+    <div id="allocation-results">
+      <div class="allocation-grid">
+        <article class="panel frontier-panel"><div class="panel-head"><div><h2>효율적 경계선</h2><p>기대수익률과 위험의 조합</p></div><div class="legend-gradient"><span>SHARPE</span><span class="gradient-bar"></span><span id="sharpe-range"></span></div></div>
+          <div class="chart" id="frontier-chart"></div><div class="chart-legend"><span><i class="legend-dot gold"></i>선택 포트폴리오</span><span><i class="legend-dot gray"></i>현재</span><span><i class="legend-dot blue"></i>SAA</span><span><i class="legend-line"></i>효율적 조합</span></div>
+          <div class="frontier-controls"><label>목표 기대수익률 <span class="input-unit"><input id="target-return" type="number" min="-100" max="100" step="0.1" value="5.5" aria-label="목표 기대수익률 퍼센트"><span>%</span></span></label><label>수익률 가정 이동 <span class="input-unit"><input id="mu-shock" type="number" min="-50" max="50" step="0.25" value="0" aria-label="전체 자산 기대수익률 가정 이동 퍼센트포인트"><span>%p</span></span></label></div>
+          <p id="target-note" class="fineprint"></p>
+        </article>
+        <article class="panel selection-panel"><div class="panel-head"><div><div class="eyebrow">PORTFOLIO LENS</div><h2>비교 포트폴리오</h2></div></div><div class="portfolio-choices" id="portfolio-choices"></div><div class="selected-summary" id="selected-summary"></div></article>
+      </div>
+      <div class="two-col"><article class="panel"><div class="panel-head"><div><h2>자산별 투자비중</h2><p>현재 · 전략배분(SAA) · 선택안</p></div><button class="button small" id="allocation-csv">CSV 내보내기</button></div><div class="table-scroll" id="weights-table"></div></article><article class="panel"><div class="panel-head"><div><h2>위험 기여도</h2><p>선택 포트폴리오의 변동성 구성</p></div><span class="subtle-tag">%p / 연율</span></div><div id="risk-bars" class="risk-bars"></div><p class="fineprint">공분산과 투자비중에 따른 변동성 기여도입니다. 음의 값은 분산효과를 의미합니다.</p></article></div>
+    </div>
+    <details class="method-note"><summary>계산 기준과 가정</summary><p>7개 자산군의 연간 기대수익률, 변동성, 상관계수로 평균–분산 최적화를 계산합니다. 비중 합계는 100%, 공매도는 허용하지 않으며 CMA의 자산별 하한과 상한을 적용합니다. 시장 스냅샷은 CMA 추정값으로 자동 사용하지 않습니다. 장부 자산의 초기 변동성도 입력 가정이며 경제적 위험의 측정치가 아닙니다. SAA는 사용자가 입력한 전략배분, 선택 최적안은 가정에 따른 비교안입니다.</p></details>
+  </section>
+  <section id="view-hedge" class="view" aria-labelledby="hedge-title" hidden>
+    <div class="page-heading"><div><div class="eyebrow">CURRENCY HEDGING</div><h1 id="hedge-title">환헤지</h1><p>통화별 프리미엄과 원화 기준 수익·위험</p></div><div class="segmented" id="currency-picker" aria-label="통화 선택"><button data-currency="USD" class="active" aria-pressed="true">USD</button><button data-currency="JPY" aria-pressed="false">JPY</button><button data-currency="EUR" aria-pressed="false">EUR</button><button data-currency="AUD" aria-pressed="false">AUD</button></div></div>
+    <div class="hedge-market-grid" id="hedge-market"></div>
+    <div class="two-col hedge-grid"><article class="panel"><div class="panel-head"><div><h2 id="hedge-chart-title">USD 헤지 프리미엄</h2><p>최근 3년 · 원자료 표시 단위</p></div><span class="badge">MARKET DATA</span></div><div class="chart" id="hedge-chart"></div><div class="chart-legend"><span><i class="legend-dot teal"></i>3M</span><span><i class="legend-dot gold"></i>6M</span><span><i class="legend-dot blue"></i>12M</span></div><p class="fineprint">원자료의 연율화 규칙이 확인되지 않아, 위 수치를 아래 연간 헤지 가정에 자동 적용하지 않습니다.</p></article>
+    <article class="panel"><div class="panel-head"><div><h2>헤지 시나리오</h2><p>1년 · 초기 원금 기준 선물환 매도</p></div><span class="badge assumption">입력 가정</span></div><div class="form-grid" id="hedge-inputs"></div><label class="confirm-line"><input type="checkbox" id="premium-confirm">입력한 프리미엄은 연간 수익 기여율입니다.</label><div class="slider-label"><label for="hedge-ratio">환헤지 비율</label><strong id="hedge-ratio-value">50%</strong></div><input type="range" id="hedge-ratio" min="0" max="100" step="5" value="50"><div class="range-labels"><span>0% · 미헤지</span><span>100% · 전액 헤지</span></div><div id="hedge-error" class="notice compact" role="status"></div></article></div>
+    <div class="metric-grid three" id="hedge-metrics"></div><article class="panel"><div class="panel-head"><div><h2>헤지 비율 비교</h2><p>동일한 수익·위험 가정으로 비교</p></div></div><div class="table-scroll" id="hedge-table"></div></article>
+    <details class="method-note"><summary>수익 분해와 위험 근사</summary><p>원화 수익률은 현지 자산수익, 환율 변화, 두 수익의 교차항, 초기 원금에 대한 헤지 손익을 합산합니다. 프리미엄이 양수이면 수취, 음수이면 비용입니다. 전액 헤지도 현지 자산수익에 대한 환노출은 남습니다. 표시 위험은 1차 근사이며 교차항, 롤오버, 거래비용 및 베이시스 변동은 반영하지 않습니다.</p></details>
+  </section>
+  <section id="view-cma" class="view" aria-labelledby="cma-title" hidden>
+    <div class="page-heading"><div><div class="eyebrow">CAPITAL MARKET ASSUMPTIONS</div><h1 id="cma-title">CMA</h1><p>자산배분의 출발점이 되는 투자 가정</p></div><span class="badge assumption">초기값은 편집 가능한 가정</span></div>
+    <div class="cma-toolbar panel"><label>무위험수익률 <span class="input-unit"><input id="risk-free" type="number" min="-20" max="50" step="0.1" value="2.5" aria-label="무위험수익률 퍼센트"><span>% / 연</span></span></label><div class="toolbar-buttons"><button class="button" id="save-scenario">가정 저장</button><button class="button" id="load-scenario">저장 가정 불러오기</button><button class="button" id="export-scenario">JSON 내보내기</button><button class="button" id="import-scenario">JSON 가져오기</button><button class="button quiet" id="reset-scenario">초기화</button><input id="scenario-file" type="file" accept=".json,application/json" hidden></div></div>
+    <div id="cma-error" class="notice error" role="alert" hidden></div>
+    <article class="panel"><div class="panel-head"><div><h2>자산별 투자 가정</h2><p>원화 기준 · 연간 단순 기대수익률 · 연율 변동성</p></div><span class="subtle-tag">단위 %</span></div><div class="table-scroll" id="cma-table"></div><div class="totals-strip" id="cma-totals"></div></article>
+    <article class="panel"><div class="panel-head"><div><h2>상관계수</h2><p>대칭 행렬 · 대각선 1.00 · 양의 준정부호 검증</p></div><span class="badge assumption">초기 요인식 가정</span></div><div class="table-scroll" id="correlation-table"></div><p class="fineprint">상삼각 셀을 수정하면 대칭 셀에도 적용됩니다. 초기값은 공통 요인과 고유 요인으로 구성한 가정이며 시장에서 추정한 상관계수가 아닙니다.</p></article>
+    <div class="notice">현재 비중과 SAA 비중의 합계를 각각 100%로 입력하십시오. 최적화 제약은 합계 하한 ≤ 100% ≤ 합계 상한을 만족해야 합니다. 유효하지 않은 가정은 계산에 적용하지 않습니다.</div>
+  </section>
+  <section id="view-fx" class="view" aria-labelledby="fx-title" hidden>
+    <div class="page-heading"><div><div class="eyebrow">FX OUTLOOK</div><h1 id="fx-title">환율전망</h1><p>USDKRW · 데이터와 모형에 따른 전망 분포</p></div><button class="button" id="forecast-csv">전망 CSV 내보내기</button></div>
+    <div class="forecast-toolbar panel"><label>전망 모형<select id="forecast-method"><option value="random-walk">랜덤워크 · 로그 드리프트 0</option><option value="historical">역사적 로그 드리프트</option><option value="scenario">사용자 로그 드리프트</option></select></label><label>전망 기간<select id="forecast-months"><option value="3">3개월</option><option value="6">6개월</option><option value="12" selected>12개월</option><option value="24">24개월</option></select></label><label>추정 구간<select id="forecast-lookback"><option value="36">최근 36개월</option><option value="60">최근 60개월</option><option value="120" selected>최근 120개월</option></select></label><label id="forecast-drift-label" hidden>연간 로그 드리프트<span class="input-unit"><input id="forecast-drift" type="number" min="-100" max="100" step="0.5" value="0"><span>%</span></span></label><label class="check-inline"><input id="band68" type="checkbox" checked>68% 범위</label><label class="check-inline"><input id="band95" type="checkbox" checked>95% 범위</label></div>
+    <div id="fx-error" class="notice error" role="alert" hidden></div><div class="metric-grid" id="fx-metrics"></div>
+    <article class="panel"><div class="panel-head"><div><h2>USDKRW 전망 경로</h2><p id="forecast-caption">월말 관측치와 전망 중앙값</p></div><span class="subtle-tag">KRW / USD</span></div><div class="chart forecast-chart" id="forecast-chart"></div><div class="chart-legend"><span><i class="legend-line gray"></i>과거 관측</span><span><i class="legend-line gold"></i>전망 중앙값</span><span><i class="legend-fill strong"></i>68% 예측 범위</span><span><i class="legend-fill"></i>95% 예측 범위</span></div><p class="fineprint">정규 로그수익률과 일정한 변동성을 가정한 조건부 예측 범위입니다. 모수 추정 오차와 국면 전환 위험은 포함하지 않습니다.</p></article>
+    <div class="two-col"><article class="panel"><div class="panel-head"><div><h2>기간별 전망</h2><p>중앙값 · 예측 범위</p></div></div><div class="table-scroll" id="forecast-table"></div></article><article class="panel"><div class="panel-head"><div><h2>표본 외 검증</h2><p>순차 재추정 · 1개월 앞 예측 비교</p></div><span class="badge">ROLLING OOS</span></div><div id="oos-results"></div><p class="fineprint">각 예측 시점 이전의 관측값과 위에서 선택한 추정창으로 재계산합니다. 현재 공개된 원자료를 사용한 후향 평가이며 당시 공개본과의 일치는 검증되지 않았습니다. 사용자 드리프트의 성과 평가는 포함하지 않습니다.</p></article></div>
+  </section>
+  <footer><span>COLLABO <span class="footer-separator">/</span> INVESTMENT ANALYTICS</span><span id="source-footer">연결 원자료 확인 중</span></footer>
+</main>
+</div>
+<noscript><div class="notice error">분석 플랫폼을 사용하려면 JavaScript를 활성화하십시오. <a href="market.html">시장 데이터 화면</a></div></noscript>
+</body>
+</html>
