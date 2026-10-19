@@ -14,7 +14,7 @@ from dashboard_builder import build as build_cli
 from dashboard_builder.config import validate_config
 from dashboard_builder.excel import extract_workbook
 from dashboard_builder.render_readme import fmt_ts_change, fmt_ts_value
-from dashboard_builder.render_site import TEMPLATE_INDEX, TEMPLATE_MARKET
+from dashboard_builder.render_site import TEMPLATE_INDEX, TEMPLATE_MARKET, TEMPLATE_PLATFORM
 from dashboard_builder.sample import make_sample_workbook
 from dashboard_builder.timeseries import (
     DETECT_ROWS,
@@ -277,7 +277,10 @@ def test_build_writes_market_site_and_is_idempotent(tmp_path: Path, capsys) -> N
     assert "Time-series dashboard: 9 series, 400 dates" in printed and "rates.xlsx / DailyRate: timeseries" in printed
 
     docs = out / "docs"
-    assert (docs / "index.html").read_bytes() == TEMPLATE_MARKET.read_bytes()
+    assert (docs / "index.html").read_bytes() == TEMPLATE_PLATFORM.read_bytes()
+    assert (docs / "market.html").read_bytes() == TEMPLATE_MARKET.read_bytes()
+    for filename in ("app.js", "analytics.js", "fx.js", "styles.css"):
+        assert (docs / "platform" / filename).is_file()
     assert (docs / "tables.html").read_bytes() == TEMPLATE_INDEX.read_bytes()
     market = json.loads((docs / "data" / "market.json").read_text(encoding="utf-8"))
     assert market["title"] == "마켓" and len(market["series"]) == 9 and market["tables_page"] == "tables.html"
