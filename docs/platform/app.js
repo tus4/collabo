@@ -47,7 +47,6 @@
     if(!Object.keys(TABS).includes(tab)) tab='allocation'; currentTab=tab;
     document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+tab);
     document.querySelectorAll('[data-tab]').forEach(el=>{const active=el.dataset.tab===tab;el.classList.toggle('active',active);if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
-    $('breadcrumb').textContent=TABS[tab].toUpperCase();
     if(location.hash!=='#'+tab) history.replaceState(null,'','#'+tab);
     document.title=TABS[tab]+' | COLLABO';
   }
@@ -157,9 +156,6 @@
   function renderMarket() {
     const picks=[['USDKRW',findSeries('FX',/^USDKRW$/i)],['한국 10Y',findSeries('RATE',/^한국_10y$/i)],['미국 10Y',findSeries('RATE',/^UST10y$/i)],['DXY',findSeries('FX',/^DXY$/i)]];
     $('market-strip').innerHTML=picks.map(([label,s])=>'<div class="market-tile"><span class="label">'+label+'</span><strong>'+number(s?.latest?.value)+(s?.unit==='pct'?'<span style="font-size:12px;margin-left:3px">%</span>':'')+'</strong><small>'+(s?esc(s.latest.date):'데이터 없음')+'</small>'+(s?sparkline(s):'')+'</div>').join('');
-    const asof=market.last_date||market.asof;$('global-date').textContent='원자료 기준 '+asof;
-    const age=Math.floor((Date.now()-Date.parse(asof+'T00:00:00Z'))/86400000);
-    $('stale-badge').hidden=age<=7;$('stale-badge').textContent=age>7?'갱신 지연 · '+age+'일 경과':'';
     $('source-footer').textContent='원자료 '+market.sources.map(s=>s.file+' / '+s.sheet).join(', ')+' · '+market.series.length+'개 시계열';
   }
   async function loadSeries(series) {
@@ -274,7 +270,7 @@
   async function start() {
     wireEvents();activate(location.hash.slice(1));renderCma();renderHedgeInputs();renderForecastControls();recalculate();$('forecast-csv').disabled=true;
     try{if(!F)throw new Error('환율 계산 모듈을 불러오지 못했습니다.');const response=await fetch('data/market.json');if(!response.ok)throw new Error('시장 데이터 요청 실패 ('+response.status+')');market=await response.json();if(!Array.isArray(market.series)||!Array.isArray(market.dates))throw new Error('시장 데이터 형식을 확인하십시오.');renderMarket();renderHedgeMarket();const usd=findSeries('FX',/^USDKRW$/i);fxHistory=await loadSeries(usd);renderForecast();}
-    catch(error){showError('data-error',failMessage(error)+' · 시장 데이터와 환율전망을 표시할 수 없습니다. CMA 기반 자산배분은 사용할 수 있습니다.');$('global-date').textContent='데이터 연결 오류';$('market-strip').innerHTML='<span class="muted">시장 데이터 연결을 확인하십시오.</span>';$('source-footer').textContent='시장 원자료 연결 오류';}
+    catch(error){showError('data-error',failMessage(error)+' · 시장 데이터와 환율전망을 표시할 수 없습니다. CMA 기반 자산배분은 사용할 수 있습니다.');$('market-strip').innerHTML='<span class="muted">시장 데이터 연결을 확인하십시오.</span>';$('source-footer').textContent='시장 원자료 연결 오류';}
   }
   start();
 })();
