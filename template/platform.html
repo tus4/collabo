@@ -6,6 +6,10 @@
 <meta name="theme-color" content="#0b111b">
 <meta name="description" content="COLLABO 자산배분, 환헤지, CMA, 환율전망 분석 플랫폼">
 <title>COLLABO | Investment Analytics</title>
+<link rel="icon" type="image/x-icon" href="platform/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="platform/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="platform/favicon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="platform/apple-touch-icon.png">
 <link rel="stylesheet" href="platform/styles.css">
 <script src="platform/analytics.js" defer></script>
 <script src="platform/fx.js" defer></script>
@@ -28,12 +32,11 @@
   <div class="sidebar-bottom"><span class="status-dot"></span>KRW BASED RESEARCH<small>자산 가정 → 배분 → 환위험</small></div>
 </aside>
 <div class="workspace">
-<header class="topbar"><span>RESEARCH PLATFORM <span class="top-divider">/</span> <span id="breadcrumb">OPTIMIZER</span></span><div class="data-state"><span class="data-date" id="global-date">데이터 확인 중</span><span class="badge warning" id="stale-badge" hidden>업데이트 필요</span></div></header>
 <main id="main">
   <div id="data-error" class="notice error" role="alert" hidden></div>
   <div id="toast" class="toast" role="status" hidden></div>
   <section id="view-allocation" class="view" aria-labelledby="allocation-title">
-    <div class="page-heading"><div><div class="eyebrow">ASSET ALLOCATION</div><h1 id="allocation-title">Optimizer</h1><p>목표와 제약을 연결하는 포트폴리오 분석</p></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
+    <div class="page-heading"><div><div class="eyebrow">ASSET ALLOCATION</div><h1 id="allocation-title">Optimizer</h1></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
     <div class="market-strip" id="market-strip"><span class="muted">시장 데이터 불러오는 중…</span></div>
     <div class="section-title"><h2>Portfolio overview</h2><span class="badge assumption">사용자 가정 기반 · 연율</span></div>
     <div class="metric-grid" id="portfolio-metrics"></div>
