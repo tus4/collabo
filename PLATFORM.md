@@ -2,11 +2,15 @@
 
 ## 범위와 데이터
 
-`index.html`은 자산배분·환헤지·CMA·환율전망을 통합하며 기존 지표 탐색은 `market.html`, 일반 표는 `tables.html`에 유지한다. 외부 패키지나 API 키 없이 GitHub Pages에서 실행한다. `template/platform.html`과 `template/platform/`이 원본이며 데이터 빌드 때 `docs/`로 복사된다.
+`index.html`은 Optimizer·Hedge·CMA·Currency·Alternative 탭을 제공하며 기존 지표 탐색은 `market.html`, 일반 표는 `tables.html`에 유지한다. 외부 패키지나 API 키 없이 GitHub Pages에서 실행한다. `template/platform.html`과 `template/platform/`이 원본이며 데이터 빌드 때 `docs/`로 복사된다.
 
 사용 자료는 이 저장소의 `docs/data/market.json` 및 `docs/data/series/*.json`이다. 각 계열의 실제 관측일을 표시하며 현재 날짜를 데이터 기준일로 대체하지 않는다. 이번 구현 시 공개 데이터의 최대 날짜는 2026-07-31이었다. 원본 `tus4/data1`의 연결 조회는 404로 반환되어 원본 수정·재수집은 수행하지 않았다. USDKRW의 마지막 20개 관측값(2026-07-02~07-31)이 동일한 상태를 품질 경고로 표시하며 임의 보정하지 않는다.
 
 7개 자산군의 초기 기대수익률·변동성·상관·비중은 **편집 가능한 예시 가정**이다. 장부가 자산의 경제적 시장위험이 작다고 입증하는 수치가 아니며, 게시된 금리 수준으로 총수익률을 대신 추정하지 않는다. 시장 금리와 실제 헤지 프리미엄은 관측 정보로 분리한다.
+
+탭은 드래그 또는 `Alt` + 방향키로 이동하며, 순서는 `collabo:investment-platform:nav-order:v1` 키로 현재 브라우저에 저장한다. CMA 가정 저장과는 별개다. 알 수 없는 저장 탭은 제외하고 신규 탭은 끝에 추가한다. Alternative는 분석 항목이 아직 없는 별도 화면이다. 사이드바 시장 데이터 링크는 제거했으며 기존 `market.html` 경로는 유지한다.
+
+자산별 투자비중의 ‘현재 대비’만 정수 %p로 반올림한다. 0은 부호 없이 표시하며, 다른 비중 표시와 CSV 원래 정밀도는 유지한다. Optimizer 화면의 ‘계산 기준과 가정’ 접이식 설명은 제거했다.
 
 ## 계산 단위와 자산배분
 

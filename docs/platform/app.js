@@ -5,6 +5,8 @@
   const COLORS = ['#61cdb8', '#91aeb8', '#759ee9', '#a6a0d6', '#e8bf71', '#d99178', '#9fb272'];
   const NAMES = ['국내시가', '국내장부', '해외시가', '해외장부', '국내주식', '해외주식', '대체투자'];
   const STORAGE_KEY = 'collabo:investment-platform:scenario:v1';
+  const NAV_STORAGE_KEY = 'collabo:investment-platform:nav-order:v1';
+  const TABS = {allocation:'Optimizer',hedge:'Hedge',cma:'CMA',fx:'Currency',alternative:'Alternative'};
   const LABELS = {current:'현재',saa:'SAA',minVol:'Min Vol',maxSharpe:'Max Sharpe',target:'목표 근접',custom:'조합 선택'};
   const CAPTIONS = {current:'현재 투자비중',saa:'전략 자산배분',minVol:'최소 변동성',maxSharpe:'최대 샤프비율',target:'목표수익률 근접 조합'};
   let market = null, fxHistory = [], allocation = null, forecast = null, selected = 'maxSharpe', customPoint = null, currentTab = 'allocation', hedgeSeq = 0, toastTimer;
@@ -42,12 +44,64 @@
   function csv(rows) { return '\ufeff'+rows.map(row=>row.map(value=>{let text=String(value??'');if(typeof value==='string'&&/^[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';}).join(',')).join('\r\n'); }
   function metric(label,value,unit,note,accent=false) { return '<article class="metric-card'+(accent?' accent':'')+'"><div class="label">'+esc(label)+'</div><div class="metric'+(accent?' gold-text':'')+'">'+esc(value)+'<span class="metric-unit">'+esc(unit||'')+'</span></div><small>'+esc(note||'')+'</small></article>'; }
   function activate(tab) {
-    if(!['allocation','hedge','cma','fx'].includes(tab)) tab='allocation'; currentTab=tab;
+    if(!Object.keys(TABS).includes(tab)) tab='allocation'; currentTab=tab;
     document.querySelectorAll('.view').forEach(el=>el.hidden=el.id!=='view-'+tab);
     document.querySelectorAll('[data-tab]').forEach(el=>{const active=el.dataset.tab===tab;el.classList.toggle('active',active);if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
-    $('breadcrumb').textContent={allocation:'PORTFOLIO',hedge:'CURRENCY HEDGING',cma:'CAPITAL MARKET ASSUMPTIONS',fx:'FX OUTLOOK'}[tab];
+    $('breadcrumb').textContent=TABS[tab].toUpperCase();
     if(location.hash!=='#'+tab) history.replaceState(null,'','#'+tab);
-    document.title=({allocation:'자산배분',hedge:'환헤지',cma:'CMA',fx:'환율전망'}[tab])+' | COLLABO';
+    document.title=TABS[tab]+' | COLLABO';
+  }
+  function wireNavigation() {
+    const nav=$('module-nav'),buttons=[...nav.querySelectorAll('[data-tab]')],ids=buttons.map(b=>b.dataset.tab);
+    let saved=[];
+    try { const raw=JSON.parse(localStorage.getItem(NAV_STORAGE_KEY)); if(Array.isArray(raw))saved=raw; } catch(_) { /* Default order remains usable when storage is unavailable. */ }
+    const order=[...new Set([...saved.filter(id=>ids.includes(id)),...ids])];
+    order.forEach(id=>nav.appendChild(buttons.find(b=>b.dataset.tab===id)));
+    let dragged=null;
+    const currentOrder=()=>[...nav.querySelectorAll('[data-tab]')];
+    function saveOrder(button) {
+      const items=currentOrder();
+      try {
+        localStorage.setItem(NAV_STORAGE_KEY,JSON.stringify(items.map(b=>b.dataset.tab)));
+        $('nav-order-status').textContent=button.textContent+' '+(items.indexOf(button)+1)+'번째로 이동. 탭 순서를 저장했습니다.';
+      } catch(_) { notify('탭 순서를 변경했지만 이 브라우저에 저장하지 못했습니다.'); }
+    }
+    function clearDrag() {
+      dragged=null;
+      buttons.forEach(b=>b.classList.remove('dragging','drag-over'));
+    }
+    buttons.forEach(button=>{
+      button.addEventListener('click',()=>activate(button.dataset.tab));
+      button.addEventListener('dragstart',event=>{
+        dragged=button;button.classList.add('dragging');
+        if(event.dataTransfer){event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',button.dataset.tab);}
+      });
+      button.addEventListener('dragover',event=>{
+        if(!dragged||dragged===button)return;
+        event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';
+        buttons.forEach(b=>b.classList.toggle('drag-over',b===button));
+      });
+      button.addEventListener('dragleave',()=>button.classList.remove('drag-over'));
+      button.addEventListener('drop',event=>{
+        if(!dragged)return;
+        event.preventDefault();
+        if(dragged!==button){
+          const items=currentOrder(),moved=dragged;
+          nav.insertBefore(moved,items.indexOf(moved)<items.indexOf(button)?button.nextSibling:button);
+          moved.focus();saveOrder(moved);
+        }
+        clearDrag();
+      });
+      button.addEventListener('dragend',clearDrag);
+      button.addEventListener('keydown',event=>{
+        if(!event.altKey||!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key))return;
+        event.preventDefault();
+        const items=currentOrder(),from=items.indexOf(button),step=['ArrowUp','ArrowLeft'].includes(event.key)?-1:1,to=from+step;
+        if(to<0||to>=items.length)return;
+        nav.insertBefore(button,step>0?items[to].nextSibling:items[to]);
+        button.focus();saveOrder(button);
+      });
+    });
   }
   function renderCma() {
     const fields=[['mu','기대수익률'],['vol','변동성'],['min','하한'],['max','상한'],['current','현재 비중'],['saa','SAA 비중']];
@@ -76,7 +130,7 @@
     $('selected-summary').innerHTML='<div class="summary-row"><span>선택안</span><strong>'+LABELS[selected]+'</strong></div><div class="summary-row"><span>수익률 가정 이동</span><strong>'+signed(state.shock*100)+'%p</strong></div><div class="summary-row"><span>비중 합계</span><strong>'+pct(p.weights.reduce((a,b)=>a+b,0))+'</strong></div>';
     const min=allocation.result.frontier[0].return,max=allocation.result.frontier[allocation.result.frontier.length-1].return;
     $('target-note').textContent='목표 '+pct(state.target)+' → 근접 조합 '+pct(allocation.target.return)+' · 효율적 경계 범위 '+pct(min)+'–'+pct(max)+(state.target<min||state.target>max?' · 목표가 범위 밖이므로 가장 가까운 경계 조합을 표시합니다.':' · 35개 계산 조합 중 선택합니다.');
-    $('weights-table').innerHTML='<table><thead><tr><th>자산군</th><th>현재</th><th>SAA</th><th>'+LABELS[selected]+'</th><th>현재 대비</th></tr></thead><tbody>'+NAMES.map((n,i)=>{const delta=(p.weights[i]-state.assets[i].current)*100;return '<tr><td><span class="asset-dot" style="background:'+COLORS[i]+'"></span>'+n+'</td><td>'+number(state.assets[i].current*100)+'%</td><td>'+number(state.assets[i].saa*100)+'%</td><td class="selected-col">'+number(p.weights[i]*100)+'%</td><td class="'+signClass(delta)+'">'+signed(delta)+'%p</td></tr>';}).join('')+'</tbody></table>';
+    $('weights-table').innerHTML='<table><thead><tr><th>자산군</th><th>현재</th><th>SAA</th><th>'+LABELS[selected]+'</th><th>현재 대비</th></tr></thead><tbody>'+NAMES.map((n,i)=>{const delta=(p.weights[i]-state.assets[i].current)*100,rounded=Math.sign(delta)*Math.round(Math.abs(delta))||0;return '<tr><td><span class="asset-dot" style="background:'+COLORS[i]+'"></span>'+n+'</td><td>'+number(state.assets[i].current*100)+'%</td><td>'+number(state.assets[i].saa*100)+'%</td><td class="selected-col">'+number(p.weights[i]*100)+'%</td><td class="'+signClass(rounded)+'">'+(rounded>0?'+':'')+number(rounded,0)+'%p</td></tr>';}).join('')+'</tbody></table>';
     const riskMax=Math.max(...p.contributions.map(Math.abs),.000001);
     $('risk-bars').innerHTML=NAMES.map((n,i)=>'<div class="risk-row"><span>'+n+'</span><div class="risk-track"><div class="risk-fill" style="width:'+Math.min(100,Math.abs(p.contributions[i])/riskMax*100)+'%;background:'+(p.contributions[i]<0?'#d99191':COLORS[i])+'"></div></div><span class="risk-value '+signClass(p.contributions[i])+'">'+number(p.contributions[i]*100)+'</span></div>').join('');
     drawFrontier(p);
@@ -192,7 +246,7 @@
   }
   function applyState(next) { state=next;selected='maxSharpe';customPoint=null;renderCma();renderHedgeInputs();renderForecastControls();recalculate();renderHedgeMarket();renderForecast(); }
   function wireEvents() {
-    document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.tab)));
+    wireNavigation();
     document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.open)));
     window.addEventListener('hashchange',()=>activate(location.hash.slice(1)));
     $('cma-table').addEventListener('change',e=>{if(e.target.dataset.asset!==undefined){state.assets[Number(e.target.dataset.asset)][e.target.dataset.field]=fieldNumber(e.target);recalculate();}});
