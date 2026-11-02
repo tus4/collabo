@@ -31,7 +31,8 @@ jobs:
       - name: Check platform JavaScript and numerical invariants
         run: |
           node --check template/platform/app.js
-          node --test tests/test_analytics.cjs tests/test_fx.cjs
+          node --check template/platform/models.js
+          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs
 
       - name: Check platform interactions with a DOM emulator
         run: |
