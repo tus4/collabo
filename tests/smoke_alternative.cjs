@@ -54,12 +54,25 @@ async function add(name,mu=6,vol=10){set('alternative-select','new');set('altern
 function bookBytes(sheets){const workbook=XLSX.utils.book_new();for(const [name,rows] of sheets)XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet(rows),name);return XLSX.write(workbook,{type:'array',bookType:'xlsx',compression:true});}
 async function uploadWorkbook(name,bytes){await upload('alternative-file',{name,size:bytes.byteLength,arrayBuffer:async()=>bytes});}
 function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
+function assertReference(equityWeight){
+  assert.equal($('reference-results').hidden,false,'Reference stays usable with dynamic CMA assets');
+  assert.equal($('reference-error').hidden,true);
+  assert.equal(document.querySelectorAll('#reference-assets tbody tr').length,2,'Reference component count remains two');
+  assert.equal(document.querySelectorAll('#reference-correlation tbody tr').length,3,'Reference observed matrix remains three by three');
+  assert.ok([...document.querySelectorAll('#reference-correlation tbody tr')].every(row=>row.querySelectorAll('td').length===3));
+  assert.match($('reference-source').textContent,/data_bb\.xlsx/);
+  assert.match($('reference-source').textContent,/월별 리밸런싱/);
+  assert.match($('reference-correlation').textContent,/레퍼런스/);
+  assert.doesNotMatch($('reference-metrics').textContent+$('reference-assets').textContent,/undefined|NaN/);
+  near(Number($('reference-equity').value)/100,equityWeight);
+}
 
 (async()=>{
   await wait();
   const original=await snapshot();
   assert.equal(rowCount(),8);
   assert.equal(original.assets[7].name,'유동자산');
+  assertReference(.6);
   assert.equal(document.querySelectorAll('#alternative-list tbody tr').length,1);
 
   await add('Infrastructure <A>');
@@ -73,9 +86,15 @@ function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
   assert.equal(state.corr.length,9);assert.equal(state.corr.at(-1).at(-1),1);
   assert.deepEqual(state.corr.at(-1).slice(0,-1),Array(8).fill(0));
   assert.deepEqual(state.assets.slice(0,8).map(a=>a.current),original.assets.map(a=>a.current));
+  assertReference(.6);
+  const beforeReferenceEdit=state;
+  set('reference-equity',70,'input');assertReference(.7);
+  state=await snapshot();assert.deepEqual(state.assets,beforeReferenceEdit.assets);assert.deepEqual(state.corr,beforeReferenceEdit.corr);
+  near(state.reference.equityWeight,.7);
 
   set('alternative-mu',7.25,'input');click('alternative-apply');await wait();
   state=await snapshot();near(state.assets.at(-1).mu,.0725);
+  assertReference(.7);
   const valid=state;
   set('alternative-vol',-1,'input');click('alternative-apply');await wait();
   assert.ok(error());assert.deepEqual(await snapshot(),valid,'invalid vol must be atomic');
@@ -93,6 +112,7 @@ function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
   setCma(8,'current',0);setCma(0,'current',20);
   await add('Private Debt',5,7);const debtId=(await snapshot()).assets.at(-1).id;
   assert.equal(rowCount(),10);set('alternative-select','new');assert.equal($('alternative-apply').disabled,true);
+  assertReference(.7);set('reference-equity',25,'input');assertReference(.25);
   set('alternative-select',customId);click('alternative-remove');await wait();
   state=await snapshot();assert.equal(state.assets.length,9);assert.equal(state.assets.at(-1).id,debtId);
   assert.ok(!state.assets.some(a=>a.id===customId));assert.equal(state.corr.length,9);assert.ok(state.corr.every(row=>row.length===9));
@@ -102,6 +122,7 @@ function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
   assert.equal(saved.version,2);assert.equal(saved.assets.length,9);
   set('alternative-select',customId);set('alternative-mu',9,'input');click('alternative-apply');await wait();
   click('load-scenario');await wait();state=await snapshot();near(state.assets.find(a=>a.id===customId).mu,.05);
+  assertReference(.25);
   await importScenario(saved);assert.equal(rowCount(),9);
   const v1={...original,version:1,assets:original.assets.slice(0,7),corr:original.corr.slice(0,7).map(row=>row.slice(0,7))};
   await importScenario(v1);assert.equal(rowCount(),8,'legacy v1 import appends liquid asset');
