@@ -11,7 +11,8 @@
   const CAPTIONS = {current:'현재 투자비중',saa:'전략 자산배분',minVol:'최소 변동성',maxSharpe:'최대 샤프비율',target:'목표수익률 근접 조합'};
   let market = null, fxHistory = [], allocation = null, forecast = null, selected = 'maxSharpe', customPoint = null, currentTab = 'overview', hedgeSeq = 0, toastTimer;
   const cache = new Map();
-  let modelForecast=null, modelForecastKey='', hedgeModels={};
+  let modelForecast=null, modelForecastKey='', hedgeModels={}, hedgeBaseline=null, hedgeReasons={}, fxModelError='';
+  const summaryHorizon={hedge:12,fx:12};
   const subTabs={hedge:'monitoring',fx:'monitoring'};
   const modelNames={A:'환율모형 A',B:'환율모형 B',C:'환율모형 C',consensus:'컨센서스'};
   const missingFX={B:'학습 산출물 없음',C:'모형 사양 미확인',consensus:'원자료 없음'};
@@ -211,15 +212,15 @@
     $('forecast-drift-label').hidden=state.fx.method!=='scenario';
     renderFXModels();
     if(!fxHistory.length)return;
-    try {requireNumber(state.fx.annualDrift,'로그 드리프트',-1,1);forecast=F.forecast(fxHistory,state.fx);const last=forecast.rows[forecast.rows.length-1],method={"random-walk":'랜덤워크',historical:'역사적 드리프트',scenario:'사용자 시나리오'}[state.fx.method];
+    try {forecast=F.forecast(fxHistory,state.fx);const last=forecast.rows[forecast.rows.length-1],method={"random-walk":'랜덤워크',historical:'역사적 드리프트',scenario:'사용자 시나리오'}[state.fx.method];
       showError('fx-error','');
       $('fx-metrics').innerHTML=metric('마지막 관측 환율',number(forecast.spot),'원',forecast.asof+' · USDKRW')+metric(state.fx.months+'개월 전망 중앙값',number(last.median),'원',method,true)+metric('연율 변동성',number(forecast.annualVol*100),'%',forecast.observations+'개월 로그수익률 기준')+metric('95% 예측 범위',number(last.lower95,0)+'–'+number(last.upper95,0),'원',last.date+' · 조건부 분포');
       $('forecast-caption').textContent='관측 기준 '+forecast.asof+' · '+method+' · 연간 로그 드리프트 '+pct(forecast.annualDrift);
-      let warning=$('forecast-warning');if(!warning){warning=document.createElement('div');warning.id='forecast-warning';warning.className='notice';$('fx-metrics').after(warning);}const warnings=[];if(forecast.quality.trailingUnchangedObservations>=5)warnings.push('동일 관측값 '+forecast.quality.trailingUnchangedObservations+'개');if(forecast.estimation.partialLatestMonthExcluded)warnings.push('최신 부분월 추정 제외');if(forecast.estimation.skippedGaps)warnings.push('월 누락 '+forecast.estimation.skippedGaps+'개');warning.textContent=warnings.join(' · ');warning.hidden=!warnings.length;
+      renderFXQuality(forecast);
       drawForecast(forecast);
       $('forecast-table').innerHTML='<table><thead><tr><th>전망 시점</th><th>중앙값</th><th>68% 하단</th><th>68% 상단</th><th>95% 하단</th><th>95% 상단</th></tr></thead><tbody>'+forecast.rows.filter(r=>r.horizon>0).map(r=>'<tr><td>'+esc(r.date)+'</td><td class="selected-col">'+number(r.median)+'</td><td>'+number(r.lower68)+'</td><td>'+number(r.upper68)+'</td><td>'+number(r.lower95)+'</td><td>'+number(r.upper95)+'</td></tr>').join('')+'</tbody></table>';
       renderOos();$('forecast-csv').disabled=false;
-    }catch(error){forecast=null;showError('fx-error',failMessage(error));$('forecast-chart').innerHTML='';$('fx-metrics').innerHTML='';$('forecast-table').innerHTML='';$('oos-results').textContent='유효한 전망 가정이 필요합니다.';if($('forecast-warning'))$('forecast-warning').hidden=true;$('forecast-csv').disabled=true;}
+    }catch(error){forecast=null;showError('fx-error',failMessage(error));$('forecast-chart').innerHTML='';$('fx-metrics').innerHTML='';$('forecast-table').innerHTML='';$('oos-results').textContent='유효한 전망 가정이 필요합니다.';$('forecast-csv').disabled=true;}
   }
   function drawForecast(fc) {
     const history=F.monthly(fxHistory).slice(-25),future=fc.rows,W=1000,H=380,L=65,R=27,T=26,B=44;
@@ -247,7 +248,7 @@
     next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==7)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
     next.rf=requireNumber(raw.rf,'무위험수익률',-.2,.5);next.target=requireNumber(raw.target,'목표수익률',-1,1);next.shock=requireNumber(raw.shock,'가정 이동',-.5,.5);
     if(raw.hedge){if(!['USD','JPY','EUR','AUD'].includes(raw.hedge.currency))throw new Error('지원하지 않는 통화입니다.');next.hedge.currency=raw.hedge.currency;['localReturn','fxReturn','premium','assetVol','fxVol','correlation','hedgeRatio'].forEach(k=>next.hedge[k]=requireNumber(raw.hedge[k],'환헤지 '+k,['assetVol','fxVol','hedgeRatio'].includes(k)?0:-1,1));next.hedge.confirmed=raw.hedge.confirmed===true;F.scenario(next.hedge);}
-    if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:requireNumber(raw.fx.annualDrift,'로그 드리프트',-1,1),band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
+    if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:F.validateForecastOptions(raw.fx).annualDrift,band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
     if(raw.models){next.models.hedgeCost=requireNumber(raw.models.hedgeCost,'연간 헤지 비용',0,1);next.models.riskAversion=requireNumber(raw.models.riskAversion,'위험회피도',.01,1000);['domesticRate','foreignRate'].forEach(k=>next.models[k]=raw.models[k]===null?null:requireNumber(raw.models[k],'CIP 금리',-.99,1));}
     validateState(next);return next;
   }
@@ -264,9 +265,9 @@
     const selectFront=e=>{const point=e.target.closest('[data-frontier]');if(point&&allocation){customPoint=allocation.result.frontier[Number(point.dataset.frontier)];selected='custom';renderAllocation();}};
     $('frontier-chart').addEventListener('click',selectFront);$('frontier-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectFront(e);}});
     $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...NAMES.map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
-    $('save-scenario').addEventListener('click',()=>{try{importState(state);localStorage.setItem(STORAGE_KEY,JSON.stringify({...state,savedAt:new Date().toISOString()}));notify('현재 가정을 이 브라우저에 저장했습니다.');}catch(e){notify('저장 실패: '+failMessage(e));}});
+    $('save-scenario').addEventListener('click',()=>{try{const validated=importState(state);localStorage.setItem(STORAGE_KEY,JSON.stringify({...validated,savedAt:new Date().toISOString()}));notify('현재 가정을 이 브라우저에 저장했습니다.');}catch(e){notify('저장 실패: '+failMessage(e));}});
     $('load-scenario').addEventListener('click',()=>{try{const value=localStorage.getItem(STORAGE_KEY);if(!value)throw new Error('저장된 가정이 없습니다.');applyState(importState(JSON.parse(value)));notify('저장된 가정을 불러왔습니다.');}catch(e){notify('불러오기 실패: '+failMessage(e));}});
-    $('export-scenario').addEventListener('click',()=>{try{importState(state);download('collabo-scenario-v1.json',JSON.stringify({...state,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
+    $('export-scenario').addEventListener('click',()=>{try{const validated=importState(state);download('collabo-scenario-v1.json',JSON.stringify({...validated,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
     $('import-scenario').addEventListener('click',()=>$('scenario-file').click());
     $('scenario-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>100000)throw new Error('파일 크기는 100KB 이하여야 합니다.');applyState(importState(JSON.parse(await file.text())));notify('검증된 가정을 적용했습니다.');}catch(err){notify('가져오기 실패: '+failMessage(err));}finally{e.target.value='';}});
     $('reset-scenario').addEventListener('click',()=>{applyState(defaults());notify('화면의 가정을 초기값으로 되돌렸습니다. 저장된 가정은 유지됩니다.');});
@@ -316,11 +317,14 @@
     let error=errorMessage||'';
     if(fxHistory.length&&M){
       try{
-        const key=JSON.stringify([fxHistory.at(-1),fxHistory.length,state.fx.method,state.fx.lookback,state.fx.annualDrift]);
+        F.validateForecastOptions(state.fx);
+        const key=JSON.stringify([fxHistory.at(-1),fxHistory.length,state.fx.method,state.fx.lookback,state.fx.method==='scenario'?state.fx.annualDrift:null]);
         if(key!==modelForecastKey){modelForecast=M.monteCarlo(fxHistory,{...state.fx,months:12,paths:20000,seed:20261102});modelForecastKey=key;}
       }catch(e){error=failMessage(e);modelForecast=null;modelForecastKey='';}
-    }else {modelForecast=null;error=error||'시장 데이터 대기';}
-    const fc=modelForecast;
+    }else {modelForecast=null;modelForecastKey='';error=error||'시장 데이터 대기';}
+    const fc=modelForecast;fxModelError=error;
+    renderFXSummary();
+    renderFXQuality(fc,error);
     $('overview-status').textContent=fc?'USDKRW · '+fc.asof+(fc.quality.trailingUnchangedObservations>=5?' · 동일 관측값 '+fc.quality.trailingUnchangedObservations+'개':''):'USDKRW · '+(error||'미산출');
     $('overview-fx').innerHTML=['A','B','C','consensus'].map(key=>{
       const available=key==='A'&&fc,reason=key==='A'?error:missingFX[key];
@@ -350,11 +354,13 @@
   }
   function modelControl(key,label,value,scale=100,min=0,max=100,step=.1){return '<label>'+label+'<input type="number" data-model-control="'+key+'" value="'+(Number.isFinite(value)?String(Math.round(value*scale*1e8)/1e8):'')+'" min="'+min+'" max="'+max+'" step="'+step+'"></label>';}
   function renderHedgeModels(){
-    if(!$('hedge-model-a'))return;hedgeModels={};const reasons={};
+    if(!$('hedge-model-a'))return;hedgeModels={};hedgeBaseline=null;const reasons={};
     ['A','B','C'].forEach(key=>{
       try{if(!M)throw new Error('모형 모듈 없음');hedgeModels[key]=M.hedge(state.hedge,{model:key,cost:state.models.hedgeCost,riskAversion:state.models.riskAversion});}
       catch(error){reasons[key]=failMessage(error);}
     });
+    try{hedgeBaseline=M.hedge({...state.hedge,hedgeRatio:0},{model:'A',cost:0});}catch(_){}
+    hedgeReasons=reasons;renderHedgeSummary();
     const captions={A:'고정 헤지 · CIP 비교',B:'비용·위험 최적화',C:'최소분산'};
     $('overview-hedge').innerHTML=['A','B','C'].map(key=>{const result=hedgeModels[key];return '<article class="summary-card"><div class="summary-card-head"><h3>환헤지모형 '+key+'</h3><button class="button small" data-summary-hedge="'+key+'">상세 ↗</button></div><div class="model-status">'+esc(state.hedge.currency)+' · '+captions[key]+'</div><div class="summary-stats">'+stat('헤지비율',result?pct(result.ratio):'—')+stat('입력 가정',result?'연율':'미확인')+'</div>'+(result?hedgeQuarterTable(result):unavailableTable('hedge'))+'</article>';}).join('');
     ['A','B','C'].forEach(key=>{
@@ -373,7 +379,67 @@
       $('hedge-model-'+key.toLowerCase()).innerHTML=controls+cipHtml+'<article class="panel"><div class="panel-head"><h2>환헤지모형 '+key+'</h2><span class="badge">'+captions[key]+'</span></div>'+(result?'<div class="summary-stats">'+stat('헤지비율',pct(result.ratio))+stat('순 프리미엄',pct(result.netPremium))+'</div>'+hedgeQuarterTable(result):'<div class="model-empty" role="status">'+esc(reasons[key])+'</div>')+'</article>';
     });
   }
+  function renderFXQuality(fc,error){
+    $('fx-quality-status').hidden=false;
+    $('fx-quality-status').textContent=fc?['USDKRW',fc.asof,...forecastQuality(fc)].join(' · '):'USDKRW · '+(error||'미산출');
+  }
+  function forecastQuality(fc){
+    const items=[];
+    if(fc.quality.trailingUnchangedObservations>=5)items.push('동일 관측값 '+fc.quality.trailingUnchangedObservations+'개');
+    if(fc.estimation.partialLatestMonthExcluded)items.push('최신 부분월 추정 제외');
+    if(fc.estimation.skippedGaps)items.push('월 누락 '+fc.estimation.skippedGaps+'개');
+    return items;
+  }
+  function monitorCard(group,key,label,status,metrics,foot,available){
+    return '<article class="monitor-model-card'+(available?'':' model-unavailable')+'" data-'+group+'-summary="'+key+'"><div class="model-card-top"><h3>'+label+'</h3><button class="button small" data-summary-'+group+'="'+key+'" aria-label="'+label+' 상세">상세 ↗</button></div><div class="model-status">'+esc(status)+'</div><div class="model-card-metrics">'+metrics+'</div><div class="model-card-foot">'+esc(foot)+'</div></article>';
+  }
+  function renderFXSummary(){
+    const fc=modelForecast,h=summaryHorizon.fx,row=fc?.rows.find(r=>r.horizon===h);
+    $('fx-model-summary').innerHTML=['A','B','C','consensus'].map(key=>{
+      const r=key==='A'?row:null,reason=key==='A'?fxModelError:missingFX[key];
+      return monitorCard('fx',key,modelNames[key],r?fc.asof+' · +'+h+'M · MC':'미산출 · '+(reason||'시장 데이터 대기'),
+        stat('평균 · 원',r?number(r.mean):'—')+stat('중앙값 · 원',r?number(r.median):'—')+stat('95% 하단 · 원',r?number(r.lower95):'—')+stat('95% 상단 · 원',r?number(r.upper95):'—'),
+        r?'VaR 97.5% '+pct(r.var975)+' · 미헤지 USD 손실':'+'+h+'M · 예측값 없음',Boolean(r));
+    }).join('');
+    $('fx-comparison-csv').disabled=!fc;
+  }
+  function renderHedgeSummary(){
+    const h=summaryHorizon.hedge,base=hedgeBaseline?.rows.find(r=>r.horizon===h);
+    const labels={A:'고정 헤지 · CIP 비교',B:'비용·위험 최적화',C:'최소분산'};
+    $('hedge-model-summary').innerHTML=['A','B','C'].map(key=>{
+      const result=hedgeModels[key],row=result?.rows.find(r=>r.horizon===h);
+      return monitorCard('hedge',key,'환헤지모형 '+key,row?state.hedge.currency+' · '+labels[key]:'미산출 · '+hedgeReasons[key],
+        stat('헤지비율',result?pct(result.ratio):'—')+stat('누적 기대수익',row?pct(row.mean):'—')+stat('변동성 · 1차 근사',row?pct(row.approxVol):'—')+stat('VaR 97.5% · 손실',row?pct(row.var975):'—'),
+        '+'+h+'M · 입력 가정 · 비용 차감',Boolean(row));
+    }).join('');
+    $('hedge-model-comparison').innerHTML='<table><thead><tr><th>모형 · +'+h+'M</th><th>헤지비율</th><th>누적 기대수익</th><th>미헤지 대비 · %p</th><th>변동성 · 1차 근사</th><th>변동성 감소 · %p</th><th>상태</th></tr></thead><tbody>'+['unhedged','A','B','C'].map(key=>{
+      const result=key==='unhedged'?hedgeBaseline:hedgeModels[key],row=result?.rows.find(r=>r.horizon===h);
+      return '<tr data-comparison-model="'+key+'"><th>'+(key==='unhedged'?'미헤지':'모형 '+key)+'</th><td>'+(result?pct(result.ratio):'—')+'</td><td>'+(row?pct(row.mean):'—')+'</td><td>'+(row&&base?signed((row.mean-base.mean)*100):'—')+'</td><td>'+(row?pct(row.approxVol):'—')+'</td><td>'+(row&&base?signed((base.approxVol-row.approxVol)*100):'—')+'</td><td>'+esc(row?'입력 가정':hedgeReasons[key]||'프리미엄 단위 확인 필요')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+    $('hedge-comparison-csv').disabled=!Object.keys(hedgeModels).length;
+  }
+  function exportHedgeComparison(){
+    if(!Object.keys(hedgeModels).length)return;
+    const rows=[['model','status','reason','currency','input_type','horizon_months','hedge_ratio','expected_return','approx_vol','var975_loss_fraction','return_change_vs_unhedged','vol_reduction_vs_unhedged','annual_premium','annual_cost','risk_aversion']];
+    for(const h of [3,6,9,12])for(const key of ['unhedged','A','B','C']){
+      const result=key==='unhedged'?hedgeBaseline:hedgeModels[key],r=result?.rows.find(r=>r.horizon===h),base=hedgeBaseline?.rows.find(r=>r.horizon===h);
+      rows.push([key,r?'available':'unavailable',r?'':hedgeReasons[key]||'프리미엄 단위 확인 필요',state.hedge.currency,'user_assumption',h,result?.ratio,r?.mean,r?.approxVol,r?.var975,r&&base?r.mean-base.mean:null,r&&base?base.approxVol-r.approxVol:null,state.hedge.premium,key==='unhedged'?0:state.models.hedgeCost,key==='B'?result?.riskAversion:null]);
+    }
+    download('collabo-hedge-comparison.csv',csv(rows),'text/csv;charset=utf-8');
+  }
+  function exportFXComparison(){
+    if(!modelForecast)return;const f=modelForecast;
+    const rows=[['model','status','reason','asof','method','horizon_months','date','mean_krw','median_krw','lower95_krw','upper95_krw','var975_loss_fraction','annual_log_drift','annual_log_vol','lookback_months','paths','seed','quality']];
+    for(const h of [3,6,9,12])for(const key of ['A','B','C','consensus']){
+      const r=key==='A'?f.rows.find(r=>r.horizon===h):null;
+      rows.push([key,r?'available':'unavailable',r?'':missingFX[key],r?f.asof:null,r?f.method:null,h,r?.date,r?.mean,r?.median,r?.lower95,r?.upper95,r?.var975,r?f.annualDrift:null,r?f.annualVol:null,r?state.fx.lookback:null,r?f.paths:null,r?f.seed:null,r?forecastQuality(f).join(' · '):null]);
+    }
+    download('collabo-fx-comparison-'+f.asof+'.csv',csv(rows),'text/csv;charset=utf-8');
+  }
   function wireModels(){
+    for(const group of ['hedge','fx'])$(group+'-summary-horizon').addEventListener('change',()=>{const h=Number($(group+'-summary-horizon').value);if(![3,6,9,12].includes(h))return;summaryHorizon[group]=h;if(group==='hedge')renderHedgeSummary();else renderFXSummary();});
+    $('hedge-comparison-csv').addEventListener('click',exportHedgeComparison);
+    $('fx-comparison-csv').addEventListener('click',exportFXComparison);
     ['hedge','fx'].forEach(group=>{
       const buttons=[...document.querySelectorAll('[data-'+group+'-tab]')];
       buttons.forEach((button,i)=>{
