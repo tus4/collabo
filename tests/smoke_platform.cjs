@@ -154,7 +154,7 @@ function dragTab(from,to,commit=true) {
   assert.equal(document.querySelector('[data-tab="'+tab+'"]').textContent.trim(),label);
  }
  assert.ok(document.querySelector('#frontier-chart svg'),'allocation frontier missing');
- assert.ok(document.querySelectorAll('#weights-table tbody tr').length>=7,'asset weights missing');
+ assert.equal(document.querySelectorAll('#weights-table tbody tr').length,8,'all asset weights must be visible');
  for(const row of document.querySelectorAll('#weights-table tbody tr')) {
   const cells=row.querySelectorAll('td');
   assert.match(cells[4].textContent,/^(?:[+-]?[1-9]\d*|0)%p$/,'current-weight delta must be integer without signed zero');
@@ -372,14 +372,80 @@ function dragTab(from,to,commit=true) {
  assetVolInput.value=validAssetVol;change(assetVolInput);
  assert.equal(document.getElementById('hedge-comparison-csv').disabled,false,'corrected risk must restore valid comparison');
  click('[data-tab="cma"]');await wait();
- assert.equal(document.querySelectorAll('#cma-table tbody tr').length,7);
+ assert.equal(document.querySelectorAll('#cma-table tbody tr').length,8);
+ assert.equal(document.querySelector('#cma-table tbody tr:last-child td').textContent,'유동자산');
+ assert.equal(document.querySelectorAll('#correlation-table tbody tr').length,8);
+ assert.equal(document.querySelectorAll('#correlation-table thead th').length,9);
+ assert.equal(document.querySelectorAll('#overview-portfolios .summary-weight').length,40,'five portfolios must each include eight assets');
  click('#save-scenario');assert.ok(storage.size,'save missing');click('#export-scenario');await wait();assert.ok(downloads.length>=2,'scenario download missing');
  const saved=JSON.parse(await downloads[downloads.length-1].text());
+ assert.equal(saved.version,2);
+ assert.equal(saved.assets.length,8);
+ assert.equal(saved.assets[7].id,'asset-7');
+ assert.equal(saved.assets[7].current,0);
+ assert.equal(saved.assets[7].saa,0);
  const current=document.querySelector('[data-asset="0"][data-field="current"]');const original=current.value;current.value='99';change(current);assert.equal(document.querySelector('#allocation-results').hidden,true);assert.ok(document.querySelector('#cma-error').textContent.includes('100%'));assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-portfolio]').length,0,'invalid CMA must clear actionable stale Overview portfolio results');current.value=original;change(current);assert.equal(document.querySelector('#allocation-results').hidden,false);assert.equal(document.querySelectorAll('#overview-portfolios .summary-card').length,5,'corrected CMA must restore Overview cards');
  const corr=document.querySelector('[data-corr-i="0"][data-corr-j="1"]');const corrOriginal=corr.value;corr.value='0.20';change(corr);assert.equal(document.querySelector('#corr-1-0').textContent,'0.20');corr.value=corrOriginal;change(corr);
  const fileInput=document.querySelector('#scenario-file');async function importJson(obj){const value=JSON.stringify(obj);Object.defineProperty(fileInput,'files',{value:[{size:value.length,text:async()=>value}],configurable:true});change(fileInput);await wait();}
  await importJson({...saved,rf:.03});assert.equal(document.querySelector('#risk-free').value,'3.00');
  await importJson({...saved,rf:.06,assets:saved.assets.map(a=>({...a,max:.10}))});assert.equal(document.querySelector('#risk-free').value,'3.00');assert.ok(document.querySelector('#toast').textContent.includes('실패'));
+ // Legacy seven-asset files keep their inputs and acquire a zero-weight liquid asset.
+ const legacy=JSON.parse(JSON.stringify({...saved,version:1,rf:.029,assets:saved.assets.slice(0,7),corr:saved.corr.slice(0,7).map(row=>row.slice(0,7))}));
+ Object.assign(legacy.assets[0],{mu:.041,vol:.051,min:.05,max:.4});
+ legacy.corr[0][1]=legacy.corr[1][0]=.05;
+ await importJson(legacy);assert.equal(document.querySelector('#risk-free').value,'2.90');
+ click('#export-scenario');const migrated=JSON.parse(await downloads.at(-1).text());
+ assert.equal(migrated.version,2);
+ assert.deepEqual(migrated.assets.slice(0,7),legacy.assets,'migration must preserve all original asset assumptions and limits');
+ assert.deepEqual(migrated.corr.slice(0,7).map(row=>row.slice(0,7)),legacy.corr,'migration must preserve the old correlation block');
+ assert.equal(migrated.assets[7].current,0);assert.equal(migrated.assets[7].saa,0);
+ assert.deepEqual(migrated.corr[7],[0,0,0,0,0,0,0,1]);
+ assert.ok(migrated.corr.slice(0,7).every(row=>row[7]===0));
+ const oldScenarioKey='collabo:investment-platform:scenario:v1',scenarioKey='collabo:investment-platform:scenario:v2';
+ storage.delete(scenarioKey);storage.set(oldScenarioKey,JSON.stringify(legacy));
+ click('#reset-scenario');click('#load-scenario');assert.equal(document.querySelector('#risk-free').value,'2.90','old browser saves must remain readable');
+ click('#save-scenario');assert.equal(JSON.parse(storage.get(scenarioKey)).version,2);
+ assert.equal(storage.get(oldScenarioKey),JSON.stringify(legacy),'migration must not overwrite the legacy saved copy');
+ storage.set(scenarioKey,JSON.stringify({...migrated,rf:.031}));
+ click('#load-scenario');assert.equal(document.querySelector('#risk-free').value,'3.10','the new saved scenario takes precedence over legacy storage');
+ // Invalid versions, asset IDs, and dimensions fail without replacing the current state.
+ const swapped=legacy.assets.slice();[swapped[0],swapped[1]]=[swapped[1],swapped[0]];
+ for(const invalid of [{...legacy,version:2},{...saved,version:1},{...legacy,assets:swapped},{...legacy,corr:legacy.corr.map((row,i)=>i===0?row.concat(0):row)}]){
+  await importJson(invalid);assert.equal(document.querySelector('#risk-free').value,'3.10');assert.ok(document.querySelector('#toast').textContent.includes('실패'));
+ }
+ // Edit the liquid row and verify the resulting current portfolio independently via CSV.
+ await importJson(saved);
+ const editAsset=(index,field,value)=>{const input=document.querySelector('[data-asset="'+index+'"][data-field="'+field+'"]');input.value=String(value);change(input);};
+ for(const [index,field,value] of [[7,'mu',3.25],[7,'vol',1.25],[7,'min',10],[7,'max',20],[0,'current',10],[7,'current',10],[0,'saa',15],[7,'saa',10]])editAsset(index,field,value);
+ assert.equal(document.querySelector('#allocation-results').hidden,false);
+ click('[data-portfolio="current"]');click('#allocation-csv');
+ const allocationRows=csvRows(await downloads.at(-1).text()),allocationHeader=allocationRows.shift();
+ assert.equal(allocationRows.length,8);assert.equal(allocationRows[7][0],'유동자산');
+ const column=name=>allocationHeader.indexOf(name);
+ const value=(row,name)=>Number(row[column(name)]);
+ assert.equal(value(allocationRows[7],'current_weight'),.1);assert.equal(value(allocationRows[7],'saa_weight'),.1);
+ assert.equal(value(allocationRows[7],'assumption_mu_annual'),.0325);assert.equal(value(allocationRows[7],'assumption_vol_annual'),.0125);
+ const currentWeights=saved.assets.map((asset,i)=>i===0?.1:i===7?.1:asset.current);
+ const expectedReturn=saved.assets.reduce((sum,asset,i)=>sum+currentWeights[i]*(i===7?.0325:asset.mu),0);
+ const variance=currentWeights.reduce((sum,wi,i)=>sum+currentWeights.reduce((inner,wj,j)=>inner+wi*wj*saved.corr[i][j]*(i===7?.0125:saved.assets[i].vol)*(j===7?.0125:saved.assets[j].vol),0),0);
+ const csvReturn=allocationRows.reduce((sum,row)=>sum+value(row,'selected_weight')*value(row,'assumption_mu_annual'),0);
+ const csvRisk=allocationRows.reduce((sum,row)=>sum+value(row,'risk_contribution_annual'),0);
+ assert.ok(Math.abs(csvReturn-expectedReturn)<1e-12,'liquid-asset expected return must be included once');
+ assert.ok(Math.abs(csvRisk-Math.sqrt(variance))<1e-10,'risk contributions must sum to independently computed volatility');
+ assert.ok(Math.abs(value(allocationRows[7],'risk_contribution_annual')-.1**2*.0125**2/Math.sqrt(variance))<1e-10,'liquid-asset risk contribution must be included');
+ const liquidCorr=document.querySelector('[data-corr-i="0"][data-corr-j="7"]');liquidCorr.value='.10';change(liquidCorr);assert.equal(document.querySelector('#corr-7-0').textContent,'0.10');
+ click('#save-scenario');const liquidSaved=JSON.parse(storage.get(scenarioKey));
+ click('#reset-scenario');click('#load-scenario');click('#export-scenario');
+ const liquidRestored=JSON.parse(await downloads.at(-1).text());
+ assert.deepEqual(liquidRestored.assets,liquidSaved.assets);assert.deepEqual(liquidRestored.corr,liquidSaved.corr,'liquid assumptions and correlation must survive save/load');
+ // A 100% liquid portfolio with zero volatility has a defined return and undefined Sharpe.
+ const allLiquid={...saved,assets:saved.assets.map((asset,i)=>({...asset,min:0,max:i===7?1:asset.max,current:i===7?1:0,saa:i===7?1:0,...(i===7?{vol:0}:{})}))};
+ await importJson(allLiquid);assert.equal(document.querySelector('#allocation-results').hidden,false);
+ click('[data-portfolio="current"]');
+ const metrics=[...document.querySelectorAll('#portfolio-metrics .metric')].map(node=>node.textContent);
+ assert.equal(metrics[0],'2.50%');assert.equal(metrics[1],'0.00%');assert.equal(metrics[2],'—');
+ assert.ok(!/NaN|Infinity/.test(document.querySelector('#frontier-chart').innerHTML),'zero-volatility boundary must not corrupt the chart');
+ await importJson({...saved,rf:.03});
  sandbox.localStorage.setItem=()=>{throw Error('storage unavailable')};click('#save-scenario');assert.ok(document.querySelector('#toast').textContent.includes('저장 실패'));sandbox.localStorage.setItem=(k,v)=>storage.set(k,v);
  click('[data-tab="fx"]');const lookback=document.querySelector('#forecast-lookback');lookback.value='36';change(lookback);await wait();assert.ok(document.querySelector('#oos-results').textContent.includes('추정창 36개월'));const method=document.querySelector('#forecast-method');method.value='scenario';change(method);const drift=document.querySelector('#forecast-drift');drift.value='10';change(drift);await wait();assert.equal(document.querySelector('#forecast-drift-label').hidden,false);assert.ok(!document.querySelector('#forecast-chart').innerHTML.includes('NaN'));
  drift.value='200';change(drift);await wait();
@@ -405,5 +471,5 @@ function dragTab(from,to,commit=true) {
  click('[data-tab="hedge"]');for(const [key,value] of [['localReturn','5'],['fxReturn','-10'],['premium','-2']]){const input=document.querySelector('[data-hedge="'+key+'"]');input.value=value;change(input);}confirm.checked=true;change(confirm);const ratio=document.querySelector('#hedge-ratio');ratio.value='100';ratio.dispatchEvent(new dom.Event('input',{bubbles:true}));assert.ok(document.querySelector('#hedge-metrics').textContent.includes('2.50'));
  click('[data-tab="allocation"]');const point=document.querySelector('[data-frontier="12"]');point.dispatchEvent(new dom.Event('click',{bubbles:true}));assert.ok(document.querySelector('#selected-summary').textContent.includes('조합 선택'));click('#allocation-csv');
  assert.ok(fetches.every(url=>url.startsWith('data/')),'unexpected external fetch');
- console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:7,storage:true,downloads:downloads.length,fetches:fetches.length}));
+ console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,legacyScenarioMigration:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

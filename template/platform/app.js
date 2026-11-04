@@ -2,9 +2,10 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const A = window.CollaboAnalytics, F = window.CollaboFX, M = window.CollaboModels;
-  const COLORS = ['#61cdb8', '#91aeb8', '#759ee9', '#a6a0d6', '#e8bf71', '#d99178', '#9fb272'];
-  const NAMES = ['국내시가', '국내장부', '해외시가', '해외장부', '국내주식', '해외주식', '대체투자'];
-  const STORAGE_KEY = 'collabo:investment-platform:scenario:v1';
+  const COLORS = ['#61cdb8', '#91aeb8', '#759ee9', '#a6a0d6', '#e8bf71', '#d99178', '#9fb272', '#b8c6d8'];
+  const NAMES = ['국내시가', '국내장부', '해외시가', '해외장부', '국내주식', '해외주식', '대체투자', '유동자산'];
+  const STORAGE_KEY = 'collabo:investment-platform:scenario:v2';
+  const LEGACY_STORAGE_KEY = 'collabo:investment-platform:scenario:v1';
   const NAV_STORAGE_KEY = 'collabo:investment-platform:nav-order:v2';
   const TABS = {overview:'Overview',allocation:'Optimizer',cma:'CMA',hedge:'Hedge',fx:'Currency',alternative:'Alternative'};
   const LABELS = {current:'현재',saa:'SAA',minVol:'Min Vol',maxSharpe:'Max Sharpe',target:'목표 근접',custom:'조합 선택'};
@@ -17,10 +18,10 @@
   const modelNames={A:'환율모형 A',B:'환율모형 B',C:'환율모형 C',consensus:'컨센서스'};
   const missingFX={B:'학습 산출물 없음',C:'모형 사양 미확인',consensus:'원자료 없음'};
   function defaults() {
-    const mu = [.037,.033,.047,.042,.075,.08,.065], vol = [.045,.012,.085,.03,.20,.18,.10];
-    const current = [.20,.15,.15,.10,.10,.15,.15], saa = [.25,.15,.15,.10,.10,.15,.10];
-    const factors = [[.55,0,0],[.20,0,0],[.40,0,.60],[.20,0,.25],[0,.75,0],[0,.70,.35],[.15,.40,.15]];
-    return {version:1, assets:NAMES.map((name,i)=>({id:'asset-'+i,name,mu:mu[i],vol:vol[i],min:0,max:.5,current:current[i],saa:saa[i]})),
+    const mu = [.037,.033,.047,.042,.075,.08,.065,.025], vol = [.045,.012,.085,.03,.20,.18,.10,.005];
+    const current = [.20,.15,.15,.10,.10,.15,.15,0], saa = [.25,.15,.15,.10,.10,.15,.10,0];
+    const factors = [[.55,0,0],[.20,0,0],[.40,0,.60],[.20,0,.25],[0,.75,0],[0,.70,.35],[.15,.40,.15],[0,0,0]];
+    return {version:2, assets:NAMES.map((name,i)=>({id:'asset-'+i,name,mu:mu[i],vol:vol[i],min:0,max:i===7?1:.5,current:current[i],saa:saa[i]})),
       corr:factors.map((f,i)=>factors.map((g,j)=>i===j?1:f.reduce((s,v,k)=>s+v*g[k],0))),rf:.025,target:.055,shock:0,
       hedge:{currency:'USD',localReturn:.05,fxReturn:0,premium:0,hedgeRatio:.5,assetVol:.08,fxVol:.10,correlation:0,confirmed:false},
       models:{hedgeCost:0,riskAversion:3,domesticRate:null,foreignRate:null},
@@ -131,7 +132,7 @@
   function chosen() { return selected==='custom'?customPoint:allocation[selected]; }
   function renderAllocation() {
     if(!allocation)return;const p=chosen(),delta=p.return-allocation.current.return;
-    $('portfolio-metrics').innerHTML=metric('기대수익률',number(p.return*100),'%',LABELS[selected]+' · 현재 대비 '+signed(delta*100)+'%p',true)+metric('예상 변동성',number(p.vol*100),'%','연율 · CMA 공분산 기준')+metric('샤프비율',(p.sharpeDefined===false?'—':number(p.sharpe)),'','무위험수익률 '+pct(state.rf))+metric('투자 자산군','7','','현재 / SAA / 최적안 비교');
+    $('portfolio-metrics').innerHTML=metric('기대수익률',number(p.return*100),'%',LABELS[selected]+' · 현재 대비 '+signed(delta*100)+'%p',true)+metric('예상 변동성',number(p.vol*100),'%','연율 · CMA 공분산 기준')+metric('샤프비율',(p.sharpeDefined===false?'—':number(p.sharpe)),'','무위험수익률 '+pct(state.rf))+metric('투자 자산군',String(state.assets.length),'','현재 / SAA / 최적안 비교');
     $('portfolio-choices').innerHTML=['current','saa','minVol','maxSharpe','target'].map(key=>'<button class="portfolio-choice'+(selected===key?' active':'')+'" data-portfolio="'+key+'" aria-pressed="'+(selected===key)+'"><span class="choice-radio"></span><span><span class="choice-name">'+LABELS[key]+'</span><span class="choice-caption" style="display:block">'+CAPTIONS[key]+'</span></span><span class="choice-value">'+pct(allocation[key].return)+'</span></button>').join('');
     $('selected-summary').innerHTML='<div class="summary-row"><span>선택안</span><strong>'+LABELS[selected]+'</strong></div><div class="summary-row"><span>수익률 가정 이동</span><strong>'+signed(state.shock*100)+'%p</strong></div><div class="summary-row"><span>비중 합계</span><strong>'+pct(p.weights.reduce((a,b)=>a+b,0))+'</strong></div>';
     const min=allocation.result.frontier[0].return,max=allocation.result.frontier[allocation.result.frontier.length-1].return;
@@ -242,10 +243,17 @@
     }catch(error){$('oos-results').textContent='표본 외 평가: '+failMessage(error);}
   }
   function importState(raw) {
-    if(!raw||raw.version!==1||!Array.isArray(raw.assets)||raw.assets.length!==7||!Array.isArray(raw.corr)||raw.corr.length!==7)throw new Error('지원하는 COLLABO v1 가정 파일이 아닙니다.');
+    const count=raw?.version===1?7:NAMES.length;
+    if(!raw||![1,2].includes(raw.version)||!Array.isArray(raw.assets)||raw.assets.length!==count||!Array.isArray(raw.corr)||raw.corr.length!==count)throw new Error('지원하는 COLLABO 가정 파일이 아닙니다.');
     const next=defaults();
+    const liquidAsset=next.assets[7];
     next.assets=raw.assets.map((a,i)=>{if(!a||a.id!=='asset-'+i)throw new Error('자산군 순서 또는 ID가 올바르지 않습니다.');const result={id:'asset-'+i,name:NAMES[i]};['mu','vol','min','max','current','saa'].forEach(k=>result[k]=requireNumber(a[k],NAMES[i]+' '+k,k==='mu'?-1:0,1));return result;});
-    next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==7)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
+    next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==count)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
+    if(raw.version===1){
+      next.assets.push(liquidAsset);
+      next.corr.forEach(row=>row.push(0));
+      next.corr.push([...Array(count).fill(0),1]);
+    }
     next.rf=requireNumber(raw.rf,'무위험수익률',-.2,.5);next.target=requireNumber(raw.target,'목표수익률',-1,1);next.shock=requireNumber(raw.shock,'가정 이동',-.5,.5);
     if(raw.hedge){if(!['USD','JPY','EUR','AUD'].includes(raw.hedge.currency))throw new Error('지원하지 않는 통화입니다.');next.hedge.currency=raw.hedge.currency;['localReturn','fxReturn','premium','assetVol','fxVol','correlation','hedgeRatio'].forEach(k=>next.hedge[k]=requireNumber(raw.hedge[k],'환헤지 '+k,['assetVol','fxVol','hedgeRatio'].includes(k)?0:-1,1));next.hedge.confirmed=raw.hedge.confirmed===true;F.scenario(next.hedge);}
     if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:F.validateForecastOptions(raw.fx).annualDrift,band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
@@ -266,8 +274,8 @@
     $('frontier-chart').addEventListener('click',selectFront);$('frontier-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectFront(e);}});
     $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...NAMES.map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
     $('save-scenario').addEventListener('click',()=>{try{const validated=importState(state);localStorage.setItem(STORAGE_KEY,JSON.stringify({...validated,savedAt:new Date().toISOString()}));notify('현재 가정을 이 브라우저에 저장했습니다.');}catch(e){notify('저장 실패: '+failMessage(e));}});
-    $('load-scenario').addEventListener('click',()=>{try{const value=localStorage.getItem(STORAGE_KEY);if(!value)throw new Error('저장된 가정이 없습니다.');applyState(importState(JSON.parse(value)));notify('저장된 가정을 불러왔습니다.');}catch(e){notify('불러오기 실패: '+failMessage(e));}});
-    $('export-scenario').addEventListener('click',()=>{try{const validated=importState(state);download('collabo-scenario-v1.json',JSON.stringify({...validated,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
+    $('load-scenario').addEventListener('click',()=>{try{const value=localStorage.getItem(STORAGE_KEY)??localStorage.getItem(LEGACY_STORAGE_KEY);if(!value)throw new Error('저장된 가정이 없습니다.');applyState(importState(JSON.parse(value)));notify('저장된 가정을 불러왔습니다.');}catch(e){notify('불러오기 실패: '+failMessage(e));}});
+    $('export-scenario').addEventListener('click',()=>{try{const validated=importState(state);download('collabo-scenario-v2.json',JSON.stringify({...validated,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
     $('import-scenario').addEventListener('click',()=>$('scenario-file').click());
     $('scenario-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>100000)throw new Error('파일 크기는 100KB 이하여야 합니다.');applyState(importState(JSON.parse(await file.text())));notify('검증된 가정을 적용했습니다.');}catch(err){notify('가져오기 실패: '+failMessage(err));}finally{e.target.value='';}});
     $('reset-scenario').addEventListener('click',()=>{applyState(defaults());notify('화면의 가정을 초기값으로 되돌렸습니다. 저장된 가정은 유지됩니다.');});
