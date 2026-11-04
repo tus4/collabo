@@ -16,7 +16,7 @@
 
 ## Overview와 모형 하위 탭 (2026-11-02)
 
-Overview가 기본 화면이다. 현재·SAA·Min Vol·Max Sharpe·목표 근접의 5개 카드에서 기대수익률·변동성·Sharpe·8개 자산별 비중을 비교한다. 각 카드는 동일한 CMA 계산 결과를 사용하고 상세 버튼으로 해당 선택안을 연다. 잘못된 CMA 입력에서는 이전 카드를 제거한다. 초기 CMA는 기존 예시 가정이며 PAP의 실제 배분을 가져오지 않는다.
+Overview가 기본 화면이다. 현재·SAA·Min Vol·Max Sharpe·Target Return의 5개 카드에서 기대수익률·변동성·Sharpe·8개 자산별 비중을 비교한다. 각 카드는 동일한 CMA 계산 결과를 사용하고 상세 버튼으로 해당 선택안을 연다. 잘못된 CMA 입력에서는 이전 카드를 제거한다. 초기 CMA는 기존 예시 가정이며 PAP의 실제 배분을 가져오지 않는다.
 
 Hedge는 모니터링·환헤지모형 A/B/C, Currency는 모니터링·환율모형 A/B/C·컨센서스 하위 탭으로 나뉜다. Overview에 환율 4개, 환헤지 3개 카드와 +3/+6/+9/+12개월 누적 결과를 표시한다. 분기는 기준일로부터의 개월 간격이며 캘린더 분기 말과 다를 수 있다. 카드 상세와 CSV는 같은 결과 객체를 사용한다. 환헤지에는 컨센서스를 만들지 않는다.
 
@@ -66,7 +66,17 @@ cp template/platform/reference-data.json docs/platform/reference-data.json
 
 가중치 합계는 1이며 자산별 하한·상한과 비음수 제약을 적용한다. 상관행렬의 대칭·대각 1·양의 준정부호를 점검하고, 불가능한 제약을 자동 변경하지 않는다. 변동성 기여도는 해당 자산의 비중 × 포트폴리오와의 공분산 / 포트폴리오 변동성이며 합계가 전체 변동성과 일치한다. 상관 때문에 일부 기여도는 음수일 수 있다.
 
-최소분산과 목표수익 제약을 이용한 효율적 경계선을 계산한다. 출력은 입력 가정하의 계산 결과이며 향후 실현성과 우월성이나 투자 권고가 아니다. 현재·SAA 비중과 계산 대안의 차이를 함께 비교한다. 목표수익 선택안은 계산된 경계선 중 가장 가까운 수익률 지점이며 정확한 목표 일치로 표시하지 않는다. 구현 세부 허용오차와 수렴 진단은 `template/platform/analytics.js`를 따른다.
+최소분산과 목표수익 제약을 이용한 효율적 경계선을 계산한다. 출력은 입력 가정하의 계산 결과이며 향후 실현성과 우월성이나 투자 권고가 아니다. 현재·SAA 비중과 계산 대안의 차이를 함께 비교한다. Target Return은 입력한 연 기대수익률 제약을 직접 푼 최소분산 조합이다. 기본 조건은 기대수익률이 목표 이상(≥)이며, 일치(=)도 선택할 수 있다. 이상 조건에서 목표가 최소분산 포트폴리오의 기대수익률 이하이면 최소분산 포트폴리오를 사용한다. 일치 조건은 효율적 경계선의 표시 구간 아래도 포함하는 전체 달성 가능 수익률 구간에서 풀며, 경계선 표시 점의 개수와 독립적이다. 구현 세부 허용오차와 수렴 진단은 `template/platform/analytics.js`를 따른다.
+
+## Target Return 입력 (2026-11-05)
+
+Overview의 Target Return 상세 버튼 또는 Optimizer의 Target Return 선택안을 누르면 기대수익률 카드 위에 목표 기대수익률(% / 연)과 제약조건(이상·일치) 입력이 표시된다. 입력 변경 시 기존 CMA·자산별 비중 하한/상한을 유지하면서 최소분산 조합을 다시 산출한다. 가능 범위는 자산별 비중 한도와 수익률 가정 이동을 적용한 전체 구간이다. 표시 수치는 소수점 두 자리이며 계산·CSV는 원래 정밀도를 유지한다.
+
+달성할 수 없는 목표 또는 비어 있거나 잘못된 목표 입력은 Target Return 카드와 선택안만 미산출로 처리한다. 이전 투자비중과 위험 기여도는 제거하고 해당 CSV를 비활성화하며 목표 입력은 계속 수정할 수 있다. 현재·SAA·Min Vol·Max Sharpe는 유지한다. CMA 자체가 유효하지 않으면 기존과 같이 전체 자산배분 결과를 제거한다.
+
+`target`과 `targetMode`(`minimum` 또는 `exact`)는 가정 저장·JSON 내보내기/가져오기에 포함한다. 기존 v1/v2 파일에 `targetMode`가 없으면 `minimum`으로 읽는다. 목표수익률 선택은 수치 최적화이며 향후 실현수익률 보장이 아니다.
+
+이번 Target Return 변경은 Node 계산 테스트, DOM 입력·저장·CSV 검사, Python 73 passed/1 skipped 및 독립 SciPy 비교(13개 모형, 실행 가능 234건·불가능 78건)로 검증했다. 실제 데스크톱 브라우저에서 Overview 상세 연결, 5.37% 일치, 99% 오류·CSV 비활성화, 정상 입력 복구를 확인했다. 모바일 브라우저의 실제 레이아웃은 미검증이다.
 
 ## 환헤지
 
@@ -141,7 +151,7 @@ USDKRW의 월별 마지막 유효 관측으로 로그수익률을 만든다. 인
 
 ## Portfolio VaR / Performance Review (2026-11-05)
 
-Overview의 현재·SAA·Min Vol·Max Sharpe·목표 근접 카드에 동일 설정의 Value at Risk 손실률과 금액을 표시한다. 상세 버튼은 해당 포트폴리오를 Optimizer로 전달한다. Performance Review는 선택 포트폴리오 또는 경계선에서 선택한 조합의 Market VaR, Conditional VaR, Expected Shortfall, Tracking Error, Information Ratio를 표시한다.
+Overview의 현재·SAA·Min Vol·Max Sharpe·Target Return 카드에 동일 설정의 Value at Risk 손실률과 금액을 표시한다. 상세 버튼은 해당 포트폴리오를 Optimizer로 전달한다. Performance Review는 선택 포트폴리오 또는 경계선에서 선택한 조합의 Market VaR, Conditional VaR, Expected Shortfall, Tracking Error, Information Ratio를 표시한다.
 
 기본 설정은 신뢰수준 95%, 보유기간 21거래일, 투자금액 10억 원, 벤치마크 SAA다. 신뢰수준 90/95/97.5/99%, 보유기간 1/5/10/21/63/126/252거래일을 지원한다. 투자금액은 1원 이상 10^16원 이하, 화면 입력 단위는 억 원이다. Overview와 Optimizer의 설정은 공유되며 CMA 시나리오 저장·불러오기·JSON 내보내기에 포함된다. 이전 JSON에 review 항목이 없으면 기본 설정을 사용한다. 입력이 유효하지 않으면 위험 수치를 비우고 CSV를 비활성화한다. 잘못된 CMA에서는 모든 포트폴리오 결과를 숨기거나 비운다.
 
@@ -174,6 +184,8 @@ Performance Review CSV는 5개 기본 포트폴리오 및 선택한 사용자 �
 - [MathWorks, Tracking Error and undefined Information Ratio at zero active risk](https://www.mathworks.com/help/finance/inforatio.html)
 
 검증 결과: JavaScript 계산 테스트 37개 통과, Python 테스트 78개 통과·1개 기존 skip, 독립 Python 위험지표 검증 28개 통과. DOM 동작 검증은 최신 8개 자산 구성에서 Overview·상세 값 일치, 입력 변경, TE=0, 오류 복구, CSV, 저장·가져오기, 구버전 마이그레이션을 확인했다. template/docs는 바이트 단위로 일치한다. 공유 미리보기 환경 점유로 이번 변경의 실제 브라우저·모바일 레이아웃 검증은 수행하지 못했다.
+
+Target Return 제약이 불가능하면 해당 VaR를 미산출로 표시한다. 해당 포트폴리오를 선택하면 Performance Review 수치와 CSV를 비활성화하며, 다른 포트폴리오 분석은 유지한다. 미산출 Target Return을 벤치마크로 선택해도 절대 VaR·ES는 계산하고 TE·IR·예상 초과수익만 공란으로 표시한다. CSV는 미산출 포트폴리오 행을 유지하고 portfolio_available 및 benchmark_available로 상태를 구분한다.
 
 ## Hedge·Currency 모니터링 개선 (2026-11-05)
 
