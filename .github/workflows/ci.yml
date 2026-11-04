@@ -32,7 +32,8 @@ jobs:
         run: |
           node --check template/platform/app.js
           node --check template/platform/models.js
-          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs
+          node --check template/platform/reference.js
+          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs tests/test_reference.cjs
 
       - name: Check platform interactions with a DOM emulator
         run: |
