@@ -96,6 +96,40 @@ test('minimum data, invalid methods and invalid options are rejected', () => {
   assert.throws(()=>FX.forecast(sample(),{months:Infinity}));
 });
 
+test('shared forecast validation preserves horizon bounds and validates only active drift', () => {
+  assert.deepEqual(FX.validateForecastOptions(), {months:12,lookback:120,method:'random-walk',annualDrift:0});
+  for (const months of [1,60,120]) {
+    assert.equal(FX.validateForecastOptions({months}).months,months);
+    assert.equal(FX.forecast(sample(),{months}).rows.length,months+1);
+  }
+  for (const lookback of [24,1200]) assert.equal(FX.validateForecastOptions({lookback}).lookback,lookback);
+  for (const invalid of [{months:121},{months:1.5},{months:null},{lookback:23},{lookback:1201},{lookback:24.5},{method:'other'}]) {
+    assert.throws(()=>FX.validateForecastOptions(invalid));
+    assert.throws(()=>FX.forecast(sample(),invalid));
+  }
+  for (const annualDrift of [-1,1]) {
+    const options={method:'scenario',annualDrift};
+    assert.equal(FX.validateForecastOptions(options).annualDrift,annualDrift);
+    near(FX.forecast(sample(),options).rows[12].median/FX.forecast(sample()).spot,Math.exp(annualDrift));
+    for (const method of ['random-walk','historical']) {
+      assert.equal(FX.validateForecastOptions({method,annualDrift}).annualDrift,annualDrift);
+      assert.deepEqual(FX.forecast(sample(),{method,annualDrift}),FX.forecast(sample(),{method}));
+    }
+  }
+  for (const annualDrift of [-1.01,1.01,2,NaN,Infinity,null,'']) {
+    assert.throws(()=>FX.validateForecastOptions({method:'scenario',annualDrift}));
+    assert.throws(()=>FX.forecast(sample(),{method:'scenario',annualDrift}));
+    for (const method of ['random-walk','historical']) {
+      const input={method,annualDrift,band68:false};
+      const normalized=FX.validateForecastOptions(input);
+      assert.equal(normalized.annualDrift,0);
+      assert.equal(normalized.band68,false);
+      assert.ok(Object.is(input.annualDrift,annualDrift),'validation must not mutate settings');
+      assert.deepEqual(FX.forecast(sample(),input),FX.forecast(sample(),{method}));
+    }
+  }
+});
+
 test('unchanged tail is diagnosed without inventing or removing observations', () => {
   const history = sample(60);
   history.slice(-7).forEach(p=>{p.value=1400;});
@@ -177,5 +211,32 @@ test('hedge premium sign, covariance endpoints and invalid input protections', (
   near(FX.scenario({...base,assetVol:0.1,fxVol:0.1,correlation:1}).approxVol,0.2);
   for (const change of [{hedgeRatio:1.1},{hedgeRatio:-0.1},{correlation:1.01},{assetVol:-0.01},{fxReturn:-1},{premium:NaN},{localReturn:'0.05'}]) {
     assert.throws(()=>FX.scenario({...base,...change}));
+  }
+});
+
+test('shared hedge validation matches UI limits and rejects out-of-range computed results', () => {
+  const input={...base,currency:'JPY',confirmed:true};
+  assert.deepEqual(FX.validateScenario(input),input);
+  assert.notEqual(FX.validateScenario(input),input,'validation returns a copy');
+  for (const key of ['localReturn','fxReturn','premium','assetVol','fxVol','hedgeRatio','correlation']) {
+    for (const value of [1.01,NaN,Infinity,null,'0.1']) {
+      const invalid={...base,[key]:value};
+      assert.throws(()=>FX.validateScenario(invalid),key);
+      assert.throws(()=>FX.scenario(invalid),key);
+    }
+    assert.doesNotThrow(()=>FX.scenario({...base,[key]:1}));
+  }
+  for (const key of ['assetVol','fxVol','hedgeRatio']) {
+    assert.throws(()=>FX.scenario({...base,[key]:-0.01}));
+    assert.doesNotThrow(()=>FX.scenario({...base,[key]:0}));
+  }
+  for (const key of ['fxReturn','premium']) {
+    assert.throws(()=>FX.validateScenario({...base,[key]:-1}));
+    assert.throws(()=>FX.scenario({...base,[key]:-1}));
+    assert.doesNotThrow(()=>FX.scenario({...base,[key]:-1+Number.EPSILON/2}));
+  }
+  for (const key of ['localReturn','correlation']) {
+    assert.doesNotThrow(()=>FX.scenario({...base,[key]:-1}));
+    assert.throws(()=>FX.scenario({...base,[key]:-1.01}));
   }
 });
