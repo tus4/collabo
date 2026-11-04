@@ -18,3 +18,30 @@ table{font-size:12px}th{font-size:11px}.editable-table input,.correlation-table 
 .reference-options{grid-template-columns:repeat(4,minmax(0,1fr))}.reference-weight-control{display:flex;align-items:center;gap:14px;margin:22px 0 16px;font-size:11px;color:var(--muted)}.reference-weight-control input{flex:1;min-width:60px;accent-color:var(--gold)}.reference-weight-control>span{white-space:nowrap}.reference-weight-labels{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);margin-bottom:8px}.reference-weight-labels strong{color:var(--text);margin-left:8px}.reference-weight-track{height:7px;border-radius:4px;background:#61cdb8;overflow:hidden}.reference-weight-track span{display:block;height:100%;background:#5276b5}.reference-source{margin-top:15px;color:var(--muted);font-size:11px;line-height:1.7}.reference-correlation-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:20px 0 14px;flex-wrap:wrap}.reference-correlation-heading h3{font-size:14px;margin:0}.reference-matrix{min-width:430px}.reference-matrix .selected-col{color:var(--gold);background:#e8bf710b}.reference-legend{display:flex;gap:20px;font-size:12px;color:var(--muted);margin:0 0 10px}.reference-legend span{display:flex;align-items:center;gap:7px}.reference-legend i{width:18px;height:2px}.reference-equity-color{background:#5276b5}.reference-bond-color{background:#61cdb8}.reference-portfolio-color{background:var(--gold)}.reference-controls input[aria-invalid="true"]{border-color:#d99191}
 @media(max-width:1000px){.reference-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.reference-options{grid-template-columns:1fr}.reference-weight-control{flex-wrap:wrap;gap:8px}.reference-weight-control input{flex:1 1 100px}.reference-weight-control .button{margin-left:auto}.reference-weight-labels{font-size:11px}.reference-weight-labels strong{margin-left:4px}.reference-legend{gap:14px}}
+
+/* Compact model comparisons within Hedge and Currency monitoring. */
+.monitor-summary{min-width:0;margin:22px 0}
+.monitor-summary-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:13px}
+.monitor-summary-head h2{font-size:15px;font-weight:650;margin:0}
+.monitor-summary-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:100%}
+.monitor-summary-controls label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.monitor-summary-controls select{font-size:12px;min-height:36px;padding:6px 28px 6px 9px;max-width:100%}
+.monitor-model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.monitor-model-grid.currency{grid-template-columns:repeat(4,minmax(0,1fr))}
+.monitor-model-card{min-width:0;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:16px;display:flex;flex-direction:column;gap:12px}
+.monitor-model-card.accent{border-color:#74613f}
+.model-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.model-card-top h3{font-size:14px;font-weight:650;margin:0;letter-spacing:-.2px}
+.model-card-top .button{font-size:11px;min-height:30px;padding:5px 8px}
+.monitor-model-card .model-status{font-size:11px;min-height:18px;overflow-wrap:anywhere}
+.model-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 10px;font-variant-numeric:tabular-nums}
+.model-card-metrics .summary-stat span{font-size:11px;margin-bottom:4px}
+.model-card-metrics .summary-stat strong{font-size:20px;white-space:normal;overflow-wrap:anywhere}
+.model-card-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.monitor-model-card.model-unavailable{background:#0f1926;border-style:dashed}
+.model-unavailable .summary-stat strong{color:#77899f}
+#fx-quality-status{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+@media(max-width:1300px){.monitor-model-grid.currency{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.monitor-model-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.monitor-summary{margin:18px 0}.monitor-summary-head{gap:11px}.monitor-model-card{padding:15px}.monitor-model-grid,.monitor-model-grid.currency{gap:10px}.monitor-summary-controls{gap:9px}.monitor-summary-controls label{font-size:11px}.model-card-metrics .summary-stat strong{font-size:21px}}
+@media(max-width:540px){.monitor-model-grid,.monitor-model-grid.currency{grid-template-columns:1fr}.monitor-summary-controls{width:100%;justify-content:space-between}.monitor-summary-head h2{font-size:14px}.model-card-metrics{gap:12px 16px}.model-card-top{flex-wrap:nowrap}}
