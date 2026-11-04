@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
-  const A = window.CollaboAnalytics, F = window.CollaboFX, M = window.CollaboModels;
+  const A = window.CollaboAnalytics, F = window.CollaboFX, M = window.CollaboModels, R = window.CollaboReference;
   const COLORS = ['#61cdb8', '#91aeb8', '#759ee9', '#a6a0d6', '#e8bf71', '#d99178', '#9fb272', '#b8c6d8'];
   const NAMES = ['국내시가', '국내장부', '해외시가', '해외장부', '국내주식', '해외주식', '대체투자', '유동자산'];
   const STORAGE_KEY = 'collabo:investment-platform:scenario:v2';
@@ -13,7 +13,8 @@
   let market = null, fxHistory = [], allocation = null, forecast = null, selected = 'maxSharpe', customPoint = null, currentTab = 'overview', hedgeSeq = 0, toastTimer;
   const cache = new Map();
   let modelForecast=null, modelForecastKey='', hedgeModels={};
-  const subTabs={hedge:'monitoring',fx:'monitoring'};
+  const subTabs={hedge:'monitoring',fx:'monitoring',cma:'assumptions'};
+  let referenceData=null, referenceResult=null, referenceLoadError='';
   const modelNames={A:'환율모형 A',B:'환율모형 B',C:'환율모형 C',consensus:'컨센서스'};
   const missingFX={B:'학습 산출물 없음',C:'모형 사양 미확인',consensus:'원자료 없음'};
   function defaults() {
@@ -24,6 +25,7 @@
       corr:factors.map((f,i)=>factors.map((g,j)=>i===j?1:f.reduce((s,v,k)=>s+v*g[k],0))),rf:.025,target:.055,shock:0,
       hedge:{currency:'USD',localReturn:.05,fxReturn:0,premium:0,hedgeRatio:.5,assetVol:.08,fxVol:.10,correlation:0,confirmed:false},
       models:{hedgeCost:0,riskAversion:3,domesticRate:null,foreignRate:null},
+      reference:{equityWeight:.6,lookback:120,basis:'local'},
       fx:{method:'random-walk',months:12,lookback:120,annualDrift:0,band68:true,band95:true}};
   }
   let state = defaults();
@@ -257,12 +259,14 @@
     if(raw.hedge){if(!['USD','JPY','EUR','AUD'].includes(raw.hedge.currency))throw new Error('지원하지 않는 통화입니다.');next.hedge.currency=raw.hedge.currency;['localReturn','fxReturn','premium','assetVol','fxVol','correlation','hedgeRatio'].forEach(k=>next.hedge[k]=requireNumber(raw.hedge[k],'환헤지 '+k,['assetVol','fxVol','hedgeRatio'].includes(k)?0:-1,1));next.hedge.confirmed=raw.hedge.confirmed===true;F.scenario(next.hedge);}
     if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:requireNumber(raw.fx.annualDrift,'로그 드리프트',-1,1),band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
     if(raw.models){next.models.hedgeCost=requireNumber(raw.models.hedgeCost,'연간 헤지 비용',0,1);next.models.riskAversion=requireNumber(raw.models.riskAversion,'위험회피도',.01,1000);['domesticRate','foreignRate'].forEach(k=>next.models[k]=raw.models[k]===null?null:requireNumber(raw.models[k],'CIP 금리',-.99,1));}
+    if(raw.reference){next.reference={equityWeight:requireNumber(raw.reference.equityWeight,'레퍼런스 해외주식 비중',0,1),lookback:raw.reference.lookback,basis:raw.reference.basis};if(![0,60,120].includes(next.reference.lookback)||!['local','krw'].includes(next.reference.basis))throw new Error('레퍼런스 추정 기간·환율 기준을 확인하십시오.');}
     validateState(next);return next;
   }
-  function applyState(next) { state=next;selected='maxSharpe';customPoint=null;renderCma();renderHedgeInputs();renderForecastControls();recalculate();renderHedgeMarket();renderForecast(); }
+  function applyState(next) { state=next;selected='maxSharpe';customPoint=null;renderCma();syncReferenceControls();renderReference();renderHedgeInputs();renderForecastControls();recalculate();renderHedgeMarket();renderForecast(); }
   function wireEvents() {
     wireNavigation();
     wireModels();
+    wireReference();
     document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.open)));
     window.addEventListener('hashchange',()=>activate(location.hash.slice(1)));
     $('cma-table').addEventListener('change',e=>{if(e.target.dataset.asset!==undefined){state.assets[Number(e.target.dataset.asset)][e.target.dataset.field]=fieldNumber(e.target);recalculate();}});
@@ -288,8 +292,9 @@
     $('forecast-csv').addEventListener('click',()=>{if(!forecast)return;download('collabo-usdkrw-forecast-'+forecast.asof+'.csv',csv([['asof','method','lookback_months','annual_log_drift','annual_log_vol','horizon_months','date','median_krw','mean_krw','lower68_krw','upper68_krw','lower95_krw','upper95_krw'],...forecast.rows.map(r=>[forecast.asof,forecast.method,state.fx.lookback,forecast.annualDrift,forecast.annualVol,r.horizon,r.date,r.median,r.mean,r.lower68,r.upper68,r.lower95,r.upper95])]),'text/csv;charset=utf-8');});
   }
   function activateSubtab(group, tab) {
-    const choices=group==='hedge'?['monitoring','a','b','c']:['monitoring','a','b','c','consensus'];
-    if(!choices.includes(tab))tab='monitoring';subTabs[group]=tab;
+    const choices=group==='cma'?['assumptions','reference']:group==='hedge'?['monitoring','a','b','c']:['monitoring','a','b','c','consensus'];
+    if(!choices.includes(tab))tab=choices[0];subTabs[group]=tab;
+    if(group==='cma'){$('correlation-table').hidden=tab==='reference';$('cma-badge').textContent=tab==='reference'?'과거 수익률 기반 추정':'초기값은 편집 가능한 가정';$('cma-correlation-badge').textContent=tab==='reference'?'월수익률 · 관측값':'초기 요인식 가정';}
     if(group==='fx')$('forecast-csv').hidden=tab!=='monitoring';
     document.querySelectorAll('[data-'+group+'-tab]').forEach(button=>{
       const active=button.getAttribute('data-'+group+'-tab')===tab;
@@ -382,7 +387,7 @@
     });
   }
   function wireModels(){
-    ['hedge','fx'].forEach(group=>{
+    ['hedge','fx','cma'].forEach(group=>{
       const buttons=[...document.querySelectorAll('[data-'+group+'-tab]')];
       buttons.forEach((button,i)=>{
         button.addEventListener('click',()=>activateSubtab(group,button.getAttribute('data-'+group+'-tab')));
@@ -391,7 +396,7 @@
           event.preventDefault();const index=event.key==='Home'?0:event.key==='End'?buttons.length-1:(i+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
           activateSubtab(group,buttons[index].getAttribute('data-'+group+'-tab'));buttons[index].focus();
         });
-      });activateSubtab(group,'monitoring');
+      });activateSubtab(group,group==='cma'?'assumptions':'monitoring');
     });
     document.addEventListener('click',event=>{
       const p=event.target.closest('[data-summary-portfolio]');if(p&&allocation){selected=p.dataset.summaryPortfolio;renderAllocation();activate('allocation');}
@@ -406,8 +411,74 @@
     document.addEventListener('change',event=>{const input=event.target.closest('[data-model-control]');if(!input)return;const key=input.dataset.modelControl;state.models[key]=fieldNumber(input,key==='riskAversion'?1:100);renderHedgeModels();});
   }
 
+  function syncReferenceControls() {
+    const s=state.reference;
+    $('reference-equity').value=number(s.equityWeight*100).replace(/,/g,'');
+    $('reference-bond').value=number((1-s.equityWeight)*100).replace(/,/g,'');
+    $('reference-weight').value=s.equityWeight*100;
+    $('reference-lookback').value=String(s.lookback);$('reference-basis').value=s.basis;
+  }
+  function referenceBasisLabel() { return state.reference.basis==='krw'?'원화 환노출':'환율 미반영'; }
+  function renderReference() {
+    const w=state.reference.equityWeight,valid=Number.isFinite(w)&&w>=0&&w<=1;
+    ['reference-equity','reference-bond','reference-weight'].forEach(id=>$(id).setAttribute('aria-invalid',String(!valid)));
+    $('reference-allocation').innerHTML=valid?'<div class="reference-weight-labels"><span>해외주식 <strong>'+pct(w)+'</strong></span><span>국내채권 <strong>'+pct(1-w)+'</strong></span></div><div class="reference-weight-track"><span style="width:'+(w*100)+'%"></span></div>':'';
+    referenceResult=null;$('reference-csv').disabled=true;$('reference-results').hidden=true;
+    $('reference-metrics').innerHTML='';$('reference-chart').innerHTML='';$('reference-assets').innerHTML='';$('reference-source').textContent='';
+    $('reference-correlation').textContent='원자료 확인 중';$('reference-correlation-period').textContent='월수익률 · 관측 상관계수';
+    try {
+      if(!R)throw new Error('레퍼런스 계산 모듈을 불러오지 못했습니다.');
+      if(!valid)throw new Error('해외주식·국내채권 비중은 0–100% 범위여야 합니다.');
+      if(referenceLoadError)throw new Error(referenceLoadError);
+      if(!referenceData){showError('reference-error','');return;}
+      const result=R.calculate(referenceData,state.reference);referenceResult=result;
+      const basis=referenceBasisLabel(),sample=result.observations+'개월 · '+basis;
+      $('reference-metrics').innerHTML=metric('기대수익률',number(result.expectedReturn*100),'% / 연','과거 월수익률 · 산술 연율',true)+metric('연환산 변동성',number(result.annualVol*100),'%',sample)+metric('연복리 수익률',result.cagr===null?'—':number(result.cagr*100),'%',result.cagr===null?'결측 구간 · 미산출':'CAGR · 과거 실현값');
+      $('reference-period').textContent=result.startDate+'–'+result.endDate;
+      const names=['해외주식','국내채권'],indices=['미국_S&P500_TR','한국종합 (KBPMABIN INDEX)'];
+      $('reference-assets').innerHTML='<table><thead><tr><th>자산</th><th>시계열</th><th>비중</th><th>기대수익률 · 연</th><th>변동성 · 연</th></tr></thead><tbody>'+names.map((name,i)=>'<tr><th>'+name+'</th><td>'+indices[i]+'</td><td>'+pct(result.weights[i])+'</td><td>'+pct(result.assetStats[i].expectedReturn)+'</td><td>'+pct(result.assetStats[i].annualVol)+'</td></tr>').join('')+'</tbody></table>';
+      $('reference-source').textContent='data_bb.xlsx · D · 원자료 '+result.sourceAsOf+' · '+basis+' · 월별 리밸런싱'+(result.gapCount?' · 결측 구간 '+result.gapCount+'개':'');
+      const labels=[...names,'레퍼런스'];
+      $('reference-correlation').innerHTML='<table class="correlation-table reference-matrix"><thead><tr><th scope="col">관측 상관계수</th>'+labels.map((name,i)=>'<th scope="col"'+(i===2?' class="selected-col"':'')+'>'+name+'</th>').join('')+'</tr></thead><tbody>'+labels.map((name,i)=>'<tr><th scope="row"'+(i===2?' class="selected-col"':'')+'>'+name+'</th>'+result.correlation[i].map((v,j)=>'<td'+(i===2||j===2?' class="selected-col"':'')+'>'+number(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+      $('reference-correlation-period').textContent=result.rows[0].date.slice(0,7)+'–'+result.endDate.slice(0,7)+' · '+sample;
+      drawReference(result);showError('reference-error','');$('reference-results').hidden=false;$('reference-csv').disabled=false;
+    }catch(error){const message=failMessage(error);showError('reference-error',message);$('reference-correlation').textContent='미산출 · '+message;}
+  }
+  function drawReference(result) {
+    if(result.gapCount){$('reference-chart').textContent='결측 구간 · 누적 성과 미산출';return;}
+    const levels=[100,100,100],points=[{date:result.startDate,values:[...levels]}];
+    result.rows.forEach(row=>{[row.equity,row.bond,row.reference].forEach((r,i)=>levels[i]*=1+r);points.push({date:row.date,values:[...levels]});});
+    const W=740,H=260,L=58,R=22,T=20,B=35,values=points.flatMap(p=>p.values),lo=Math.floor(Math.min(...values)/20)*20,hi=Math.max(lo+20,Math.ceil(Math.max(...values)/20)*20);
+    const x=i=>L+i/(points.length-1)*(W-L-R),y=v=>H-B-(v-lo)/(hi-lo)*(H-T-B);
+    let svg=svgStart(W,H,'레퍼런스와 구성 자산의 누적 성과, 시작 100');
+    for(let i=0;i<=4;i++){const v=lo+i*(hi-lo)/4,yy=y(v);svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+yy+'" y2="'+yy+'" stroke="#27374a" stroke-dasharray="3 4"/><text x="'+(L-10)+'" y="'+(yy+4)+'" text-anchor="end">'+number(v,0)+'</text>';}
+    for(let i=0;i<=5;i++){const k=Math.round(i*(points.length-1)/5),xx=x(k);svg+='<line x1="'+xx+'" x2="'+xx+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#27374a" stroke-dasharray="3 4"/><text x="'+xx+'" y="'+(H-10)+'" text-anchor="middle">'+points[k].date.slice(2,7).replace('-','.')+'</text>';}
+    ['#5276b5','#61cdb8','#e8bf71'].forEach((color,j)=>{svg+='<path d="'+points.map((p,i)=>(i?'L':'M')+x(i).toFixed(2)+','+y(p.values[j]).toFixed(2)).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="'+(j===2?2.5:1.5)+'"/>';});
+    $('reference-chart').innerHTML=svg+'</svg>';
+  }
+  async function loadReference() {
+    renderReference();
+    try{const response=await fetch('platform/reference-data.json');if(!response.ok)throw new Error('레퍼런스 원자료 요청 실패 ('+response.status+')');referenceData=await response.json();if(referenceData.schemaVersion!==1)throw new Error('레퍼런스 원자료 버전을 확인하십시오.');}
+    catch(error){referenceData=null;referenceLoadError=failMessage(error);}
+    renderReference();
+  }
+  function wireReference() {
+    ['reference-equity','reference-bond','reference-weight'].forEach(id=>$(id).addEventListener('input',()=>{
+      const value=fieldNumber($(id)),w=id==='reference-bond'?1-value:value;
+      state.reference.equityWeight=w;
+      if(Number.isFinite(w)&&w>=0&&w<=1){if(id!=='reference-equity')$('reference-equity').value=number(w*100).replace(/,/g,'');if(id!=='reference-bond')$('reference-bond').value=number((1-w)*100).replace(/,/g,'');if(id!=='reference-weight')$('reference-weight').value=w*100;}
+      renderReference();
+    }));
+    ['reference-lookback','reference-basis'].forEach(id=>$(id).addEventListener('change',()=>{state.reference[id==='reference-lookback'?'lookback':'basis']=id==='reference-lookback'?Number($(id).value):$(id).value;renderReference();}));
+    $('reference-reset').addEventListener('click',()=>{state.reference.equityWeight=.6;syncReferenceControls();renderReference();});
+    $('reference-csv').addEventListener('click',()=>{
+      const r=referenceResult;if(!r)return;
+      download('collabo-reference-'+r.endDate+'.csv',csv([['source_asof','sample_start','sample_end','basis','rebalance','equity_weight','bond_weight','months','expected_return_annual','vol_annual','cagr','date','equity_return','bond_return','reference_return','cumulative_return'],...r.rows.map(row=>[r.sourceAsOf,r.startDate,r.endDate,r.basis,'monthly',r.weights[0],r.weights[1],r.observations,r.expectedReturn,r.annualVol,r.cagr,row.date,row.equity,row.bond,row.reference,row.cumulative])]),'text/csv;charset=utf-8');
+    });
+  }
   async function start() {
     wireEvents();activate(location.hash.slice(1));renderCma();renderHedgeInputs();renderForecastControls();recalculate();renderFXModels();$('forecast-csv').disabled=true;
+    syncReferenceControls();loadReference();
     try{if(!F)throw new Error('환율 계산 모듈을 불러오지 못했습니다.');const response=await fetch('data/market.json');if(!response.ok)throw new Error('시장 데이터 요청 실패 ('+response.status+')');market=await response.json();if(!Array.isArray(market.series)||!Array.isArray(market.dates))throw new Error('시장 데이터 형식을 확인하십시오.');renderMarket();renderHedgeMarket();const usd=findSeries('FX',/^USDKRW$/i);fxHistory=await loadSeries(usd);renderForecast();}
     catch(error){showError('data-error',failMessage(error)+' · 시장 데이터와 환율전망을 표시할 수 없습니다. CMA 기반 자산배분은 사용할 수 있습니다.');$('market-strip').innerHTML='<span class="muted">시장 데이터 연결을 확인하십시오.</span>';$('source-footer').textContent='시장 원자료 연결 오류';renderFXModels(failMessage(error));}
   }
