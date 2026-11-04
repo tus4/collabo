@@ -19,6 +19,7 @@
 <script src="platform/alternative.js" defer></script>
 <script src="platform/alternative-ui.js" defer></script>
 <script src="platform/reference.js" defer></script>
+<script src="platform/chart-export.js" defer></script>
 <script src="platform/app.js" defer></script>
 </head>
 <body>
@@ -45,7 +46,7 @@
     <div class="page-heading"><div><h1 id="overview-title">Overview</h1></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
     <div id="overview-status" class="overview-status" role="status" aria-live="polite"></div>
     <div id="overview-error" class="notice error" role="alert" hidden></div>
-    <div class="section-title"><h2>Portfolio</h2><span class="badge assumption">CMA · 예상치</span></div>
+    <div class="section-title" id="overview-portfolio-heading"><h2>Portfolio</h2><span class="badge assumption">CMA · 예상치</span></div>
     <div id="overview-risk-controls" class="review-controls" aria-label="Portfolio VaR 설정"></div>
     <div id="overview-risk-error" class="notice error compact" role="alert" hidden></div>
     <div id="overview-portfolios" class="summary-card-grid portfolio-summary-grid"></div>
@@ -110,14 +111,20 @@
   <section id="view-cma" class="view" aria-labelledby="cma-title" hidden>
     <div class="page-heading"><div><div class="eyebrow">CAPITAL MARKET ASSUMPTIONS</div><h1 id="cma-title">CMA</h1></div><span id="cma-badge" class="badge assumption">초기값은 편집 가능한 가정</span></div>
     <div class="model-tabs" role="tablist" aria-label="CMA 하위 탭">
-      <button id="cma-tab-assumptions" class="model-tab active" type="button" role="tab" data-cma-tab="assumptions" aria-controls="cma-panel-assumptions" aria-selected="true" tabindex="0">투자 가정</button>
+      <button id="cma-tab-assumptions" class="model-tab active" type="button" role="tab" data-cma-tab="assumptions" aria-controls="cma-panel-assumptions" aria-selected="true" tabindex="0">CMA</button>
+      <button id="cma-tab-correlation" class="model-tab" type="button" role="tab" data-cma-tab="correlation" aria-controls="cma-panel-correlation" aria-selected="false" tabindex="-1">Correlation</button>
       <button id="cma-tab-reference" class="model-tab" type="button" role="tab" data-cma-tab="reference" aria-controls="cma-panel-reference" aria-selected="false" tabindex="-1">Reference Portfolio</button>
     </div>
-    <div class="cma-toolbar panel"><label>무위험수익률 <span class="input-unit"><input id="risk-free" type="number" min="-20" max="50" step="0.1" value="2.5" aria-label="무위험수익률 퍼센트"><span>% / 연</span></span></label><div class="toolbar-buttons"><button class="button" id="save-scenario">가정 저장</button><button class="button" id="load-scenario">저장 가정 불러오기</button><button class="button" id="export-scenario">JSON 내보내기</button><button class="button" id="import-scenario">JSON 가져오기</button><button class="button quiet" id="reset-scenario">초기화</button><input id="scenario-file" type="file" accept=".json,application/json" hidden></div></div>
     <div id="cma-error" class="notice error" role="alert" hidden></div>
     <div id="cma-panel-assumptions" class="model-panel" role="tabpanel" data-cma-panel="assumptions" aria-labelledby="cma-tab-assumptions">
-      <article class="panel"><div class="panel-head"><div><h2>자산별 투자 가정</h2></div><span class="subtle-tag">단위 %</span></div><div class="table-scroll" id="cma-table"></div><div class="totals-strip" id="cma-totals"></div></article>
+    <div class="cma-toolbar panel"><label>무위험수익률 <span class="input-unit"><input id="risk-free" type="number" min="-20" max="50" step="0.1" value="2.5" aria-label="무위험수익률 퍼센트"><span>% / 연</span></span></label><div class="toolbar-buttons"><button class="button" id="save-scenario">가정 저장</button><button class="button" id="load-scenario">저장 가정 불러오기</button><button class="button quiet" id="reset-scenario">초기화</button></div></div>
+      <article class="panel"><div class="panel-head"><div><h2>자산별 CMA</h2></div><span class="subtle-tag">단위 %</span></div><div class="table-scroll" id="cma-table"></div><div class="totals-strip" id="cma-totals"></div></article>
     <div class="notice">현재·SAA 비중 합계 100% · 제약: 합계 하한 ≤ 100% ≤ 합계 상한</div>
+    </div>
+    <div id="cma-panel-correlation" class="model-panel" role="tabpanel" data-cma-panel="correlation" aria-labelledby="cma-tab-correlation" hidden>
+      <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">입력·추정 가정</span></div><div class="table-scroll" id="correlation-table"></div></article>
+      <article class="panel"><div class="panel-head"><h2>공분산행렬</h2><span class="subtle-tag">연율 · %²</span></div><div id="covariance-error" class="notice error compact" role="alert" hidden></div><div class="table-scroll" id="covariance-table" aria-live="polite"></div></article>
+      <article class="panel"><div class="panel-head"><h2>레퍼런스 상관계수</h2><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
     </div>
     <div id="cma-panel-reference" class="model-panel" role="tabpanel" data-cma-panel="reference" aria-labelledby="cma-tab-reference" hidden>
       <article class="panel reference-controls">
@@ -138,7 +145,6 @@
         <article class="panel"><div class="panel-head"><h2>누적 성과</h2><span class="subtle-tag">시작 100 · 월별 리밸런싱</span></div><div class="reference-legend"><span><i class="reference-equity-color"></i>해외주식</span><span><i class="reference-bond-color"></i>국내채권</span><span><i class="reference-portfolio-color"></i>레퍼런스</span></div><div id="reference-chart" class="chart"></div></article>
       </div>
     </div>
-    <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">입력·추정 가정</span></div><div class="table-scroll" id="correlation-table"></div><div class="reference-correlation-heading"><h3>레퍼런스</h3><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
   </section>
   <section id="view-fx" class="view" aria-labelledby="fx-title" hidden>
     <div class="page-heading"><div><div class="eyebrow">FX OUTLOOK</div><h1 id="fx-title">Currency</h1></div><button class="button" id="forecast-csv">전망 CSV 내보내기</button></div>

@@ -47,18 +47,41 @@ function set(id,value,type='change'){const el=$(id);assert.ok(el,id);el.value=St
 function setCma(i,key,value){const el=document.querySelector('#cma-table [data-asset="'+i+'"][data-field="'+key+'"]');assert.ok(el);el.value=String(value);event(el);}
 function error(){return $('alternative-error').hidden?'':$('alternative-error').textContent;}
 function rowCount(){return document.querySelectorAll('#cma-table tbody tr').length;}
-async function snapshot(){click('export-scenario');const result=JSON.parse(await downloads.at(-1).text());delete result.savedAt;return result;}
+async function snapshot(){
+  const previous=storage.get(STORAGE_KEY);
+  try {
+    click('save-scenario');assert.match($('toast').textContent,/현재 가정을 이 브라우저에 저장/);
+    const result=JSON.parse(storage.get(STORAGE_KEY));delete result.savedAt;return result;
+  } finally {if(previous===undefined)storage.delete(STORAGE_KEY);else storage.set(STORAGE_KEY,previous);}
+}
 async function upload(id,file){Object.defineProperty($(id),'files',{value:[file],configurable:true});event($(id));await wait();}
-async function importScenario(state){const text=JSON.stringify(state);await upload('scenario-file',{name:'scenario.json',size:Buffer.byteLength(text),text:async()=>text});}
+async function injectStoredScenario(state){
+  const previous=storage.get(STORAGE_KEY);
+  try {storage.set(STORAGE_KEY,JSON.stringify(state));click('load-scenario');await wait();}
+  finally {if(previous===undefined)storage.delete(STORAGE_KEY);else storage.set(STORAGE_KEY,previous);}
+}
 async function add(name,mu=6,vol=10){set('alternative-select','new');set('alternative-name',name);set('alternative-mu',mu);set('alternative-vol',vol);click('alternative-apply');await wait();assert.equal(error(),'');}
 function bookBytes(sheets){const workbook=XLSX.utils.book_new();for(const [name,rows] of sheets)XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet(rows),name);return XLSX.write(workbook,{type:'array',bookType:'xlsx',compression:true});}
 async function uploadWorkbook(name,bytes){await upload('alternative-file',{name,size:bytes.byteLength,arrayBuffer:async()=>bytes});}
 function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
 function selectPortfolio(key){const button=document.querySelector('[data-portfolio="'+key+'"]');assert.ok(button);button.dispatchEvent(new dom.Event('click',{bubbles:true}));}
 function csvObjects(text){const rows=text.replace(/^\ufeff/,'').trim().split(/\r?\n/).map(line=>[...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(m=>m[1].replace(/""/g,'"'))),header=rows.shift();return rows.map(row=>Object.fromEntries(header.map((key,i)=>[key,row[i]])));}
+function assertDynamicCovariance(state){
+  const n=state.assets.length;
+  assert.equal($('covariance-error').hidden,true);
+  assert.equal(document.querySelectorAll('#covariance-table tbody tr').length,n);
+  assert.equal(document.querySelectorAll('#covariance-table [data-covariance]').length,n*n);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    const cell=document.querySelector('[data-cov-i="'+i+'"][data-cov-j="'+j+'"]');
+    const expected=state.corr[i][j]*state.assets[i].vol*state.assets[j].vol;
+    near(Number(cell.dataset.covariance),expected,1e-12);
+    assert.equal(cell.textContent,(expected*10000).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}));
+  }
+}
 async function assertDynamicRisk(count,state,targetAvailable=true){
   const previous=document.querySelector('#portfolio-choices .active')?.dataset.portfolio;
   assert.equal(state.assets.length,count);
+  assertDynamicCovariance(state);
   assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-var]').length,5,'dynamic assets retain all five VaR summaries');
   for(const key of ['current','saa','minVol','maxSharpe','target']){
     const value=document.querySelector('[data-summary-var="'+key+'"] strong').textContent;
@@ -113,6 +136,8 @@ async function assertDynamicTarget(count,value,mode='exact'){
 (async()=>{
   await wait();
   const original=await snapshot();
+  assertDynamicCovariance(original);
+  assert.equal($('export-scenario'),null);assert.equal($('import-scenario'),null);assert.equal($('scenario-file'),null);
   assert.equal(rowCount(),8);
   assert.equal(original.assets[7].name,'유동자산');
   assertReference(.6);
@@ -183,9 +208,9 @@ async function assertDynamicTarget(count,value,mode='exact'){
   click('load-scenario');await wait();state=await snapshot();near(state.assets.find(a=>a.id===customId).mu,.05);
   near(state.target,.0537);assert.equal(state.targetMode,'exact','dynamic asset save/load keeps exact target');
   assertReference(.25);
-  await importScenario(saved);assert.equal(rowCount(),9);
+  await injectStoredScenario(saved);assert.equal(rowCount(),9);
   const v1={...original,version:1,assets:original.assets.slice(0,7),corr:original.corr.slice(0,7).map(row=>row.slice(0,7))};
-  await importScenario(v1);assert.equal(rowCount(),8,'legacy v1 import appends liquid asset');
+  await injectStoredScenario(v1);assert.equal(rowCount(),8,'legacy v1 save appends liquid asset');
   assert.equal((await snapshot()).version,2,'legacy scenarios migrate to v2');
   assert.equal((await snapshot()).assets[7].name,'유동자산');
 
@@ -217,7 +242,7 @@ async function assertDynamicTarget(count,value,mode='exact'){
   click('alternative-apply');await wait();assert.equal(error(),'');state=await snapshot();assert.equal(state.assets.length,9);
   custom=state.assets.at(-1);assert.equal(custom.name,'Uploaded Asset');assert.equal(custom.provenance.method,'history');
   assert.equal(custom.provenance.file,'alternative-fixture.xlsx');assert.equal(custom.provenance.compared[0].count,12);
-  near(state.corr.at(-1)[4],.2);near(state.corr[4].at(-1),.2);
+  near(state.corr.at(-1)[4],.2);near(state.corr[4].at(-1),.2);assertDynamicCovariance(state);
   click('save-scenario');click('load-scenario');await wait();state=await snapshot();assert.equal(state.assets.at(-1).provenance.count,12);
 
   // No common return dates: do not silently substitute zero correlation or apply.
