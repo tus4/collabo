@@ -53,14 +53,18 @@
     <div class="page-heading"><div><div class="eyebrow">ASSET ALLOCATION</div><h1 id="allocation-title">Optimizer</h1></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
     <div class="market-strip" id="market-strip"><span class="muted">시장 데이터 불러오는 중…</span></div>
     <div class="section-title"><h2>Portfolio overview</h2><span class="badge assumption">사용자 가정 기반 · 연율</span></div>
+    <article id="target-controls" class="panel target-controls" aria-label="Target Return 제약조건" hidden>
+      <div class="target-fields"><h2>Target Return</h2><label>목표 기대수익률 <span class="input-unit"><input id="target-return" type="number" min="-100" max="100" step="0.01" value="5.5" aria-label="목표 기대수익률 퍼센트" aria-describedby="target-note target-error"><span>% / 연</span></span></label><label>제약조건<select id="target-mode" aria-label="목표수익률 제약조건"><option value="minimum">이상 (≥)</option><option value="exact">일치 (=)</option></select></label><span class="badge">최소 변동성</span></div>
+      <div id="target-note" class="target-status" role="status" aria-live="polite"></div>
+      <div id="target-error" class="notice error compact" role="alert" hidden></div>
+    </article>
     <div class="metric-grid" id="portfolio-metrics"></div>
     <div id="model-error" class="notice error" role="alert" hidden></div>
     <div id="allocation-results">
       <div class="allocation-grid">
         <article class="panel frontier-panel"><div class="panel-head"><div><h2>효율적 경계선</h2></div><div class="legend-gradient"><span>SHARPE</span><span class="gradient-bar"></span><span id="sharpe-range"></span></div></div>
           <div class="chart" id="frontier-chart"></div><div class="chart-legend"><span><i class="legend-dot gold"></i>선택 포트폴리오</span><span><i class="legend-dot gray"></i>현재</span><span><i class="legend-dot blue"></i>SAA</span><span><i class="legend-line"></i>효율적 조합</span></div>
-          <div class="frontier-controls"><label>목표 기대수익률 <span class="input-unit"><input id="target-return" type="number" min="-100" max="100" step="0.1" value="5.5" aria-label="목표 기대수익률 퍼센트"><span>%</span></span></label><label>수익률 가정 이동 <span class="input-unit"><input id="mu-shock" type="number" min="-50" max="50" step="0.25" value="0" aria-label="전체 자산 기대수익률 가정 이동 퍼센트포인트"><span>%p</span></span></label></div>
-          <p id="target-note" class="fineprint"></p>
+          <div class="frontier-controls"><label>수익률 가정 이동 <span class="input-unit"><input id="mu-shock" type="number" min="-50" max="50" step="0.25" value="0" aria-label="전체 자산 기대수익률 가정 이동 퍼센트포인트"><span>%p</span></span></label></div>
         </article>
         <article class="panel selection-panel"><div class="panel-head"><div><div class="eyebrow">PORTFOLIO LENS</div><h2>비교 포트폴리오</h2></div></div><div class="portfolio-choices" id="portfolio-choices"></div><div class="selected-summary" id="selected-summary"></div></article>
       </div>
