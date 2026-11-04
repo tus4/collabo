@@ -102,6 +102,37 @@ function dragTab(from,to,commit=true) {
 }
 (async()=>{
  await wait();
+ assert.equal(document.getElementById('reference-results').hidden,false,'reference data loads independently');
+ assertSubtab('cma','assumptions');
+ click('[data-tab="cma"]');click('[data-cma-tab="reference"]');assertSubtab('cma','reference');
+ assert.equal(document.getElementById('correlation-table').hidden,true);
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('9.76'));
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('9.72'));
+ assert.equal(document.querySelectorAll('#reference-correlation .selected-col').length,7);
+ assert.ok(document.getElementById('reference-correlation').textContent.includes('레퍼런스'));
+ assert.ok(document.querySelector('#reference-chart svg'));
+ const referenceInput=(id,value)=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new dom.Event('input',{bubbles:true}));};
+ referenceInput('reference-equity','100');assert.equal(document.getElementById('reference-bond').value,'0.00');
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('15.51'));
+ referenceInput('reference-bond','100');assert.equal(document.getElementById('reference-equity').value,'0.00');
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('1.15'));
+ referenceInput('reference-equity','');assert.equal(document.getElementById('reference-results').hidden,true);
+ assert.equal(document.getElementById('reference-csv').disabled,true);assert.ok(document.getElementById('reference-correlation').textContent.includes('미산출'));
+ referenceInput('reference-equity','101');assert.equal(document.getElementById('reference-results').hidden,true);
+ click('#reference-reset');assert.ok(document.getElementById('reference-metrics').textContent.includes('9.76'));
+ const refBasis=document.getElementById('reference-basis');refBasis.value='krw';change(refBasis);
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('10.95'));
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('8.91'));
+ const refPeriod=document.getElementById('reference-lookback');refPeriod.value='60';change(refPeriod);
+ assert.ok(document.getElementById('reference-metrics').textContent.includes('10.38'));
+ click('#reference-csv');const refRows=csvRows(await downloads.at(-1).text());assert.equal(refRows.length,61);
+ assert.equal(refRows[1][3],'krw');assert.equal(refRows[1][7],'60');assert.equal(refRows.at(-1)[11],'2026-09-30');
+ assert.ok(Math.abs(Number(refRows[1][8])-.10376050346117967)<1e-12);
+ click('#save-scenario');referenceInput('reference-equity','25');click('#load-scenario');
+ assert.equal(document.getElementById('reference-equity').value,'60.00');assert.equal(document.getElementById('reference-basis').value,'krw');
+ click('#reset-scenario');assert.equal(document.getElementById('reference-lookback').value,'120');assert.equal(document.getElementById('reference-basis').value,'local');
+ const cmaKey=new dom.Event('keydown',{bubbles:true,cancelable:true});Object.defineProperty(cmaKey,'key',{value:'Home'});document.getElementById('cma-tab-reference').dispatchEvent(cmaKey);assertSubtab('cma','assumptions');
+ click('[data-tab="overview"]');
  assert.deepEqual(order(),defaultOrder,'v1 saved order must not override the new canonical order');
  assert.equal(document.getElementById('view-overview').hidden,false,'Overview must be the default screen');
  assert.equal(document.querySelector('[aria-current="page"]').dataset.tab,'overview');
@@ -559,6 +590,6 @@ function dragTab(from,to,commit=true) {
  assert.equal(customRisk.filter(row=>row.selected==='true').length,1);
  const exportedCustom=customRisk.find(row=>row.portfolio==='custom');
  assert.equal(performanceValue('marketVaR'),(Number(exportedCustom.market_var_loss_fraction)*100).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%','custom risk CSV/display mismatch');
- assert.ok(fetches.every(url=>url.startsWith('data/')),'unexpected external fetch');
- console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,legacyScenarioMigration:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
+ assert.ok(fetches.every(url=>url.startsWith('data/')||url==='platform/reference-data.json'),'unexpected external fetch');
+ console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,referencePortfolio:true,legacyScenarioMigration:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
