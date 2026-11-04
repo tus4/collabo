@@ -35,6 +35,8 @@ test('CIP equals independent domestic/foreign cash-and-carry replication',()=>{
   assert.throws(()=>M.cip({domesticRate:0.03,foreignRate:0.04,observedPremium:0.02}),/단위/);
   assert.throws(()=>M.cip({domesticRate:null,foreignRate:0.04}));
   assert.throws(()=>M.cip({domesticRate:0.03,foreignRate:-1}));
+  assert.throws(()=>M.cip({domesticRate:1.01,foreignRate:0.03}));
+  assert.throws(()=>M.cip({domesticRate:0.03,foreignRate:1.01}));
 });
 
 test('hedge expectation matches cash flows integrated over independent two-point shocks',()=>{
@@ -105,7 +107,7 @@ test('missing, unconfirmed, nonfinite and invalid hedge inputs fail closed',()=>
   for(const change of [{confirmed:false},{localReturn:null},{fxReturn:NaN},{premium:undefined},{assetVol:Infinity},{fxVol:-0.1},{correlation:1.1},{hedgeRatio:-0.1}]) {
     assert.throws(()=>M.hedge({...base,...change}));
   }
-  for(const options of [{model:'B',riskAversion:0},{model:'B',riskAversion:null},{model:'B',riskAversion:NaN},{cost:-0.1},{cost:null},{model:'D'}]) assert.throws(()=>M.hedge(base,options));
+  for(const options of [{model:'B',riskAversion:0},{model:'B',riskAversion:.001},{model:'B',riskAversion:1001},{model:'B',riskAversion:null},{model:'B',riskAversion:NaN},{cost:-0.1},{cost:null},{model:'D'}]) assert.throws(()=>M.hedge(base,options));
 });
 
 test('invalid B risk aversion does not suppress independent A/C results',()=>{

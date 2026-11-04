@@ -31,8 +31,8 @@
   function cip(input) {
     if (!input || typeof input !== 'object') throw new Error('CIP 입력이 필요합니다.');
     var months = integer(provided(input.months, 12), '만기 개월', 1, 120), t = months / 12;
-    var domestic = number(input.domesticRate, '원화 금리', -1, 100);
-    var foreign = number(input.foreignRate, '외화 금리', -1, 100);
+    var domestic = number(input.domesticRate, '원화 금리', -.99, 1);
+    var foreign = number(input.foreignRate, '외화 금리', -.99, 1);
     if (1 + domestic * t <= 0 || 1 + foreign * t <= 0) throw new Error('동일 만기의 금리 누적계수는 양수여야 합니다.');
     var ratio = (1 + domestic * t) / (1 + foreign * t);
     var result = { months: months, theoreticalForwardRatio: ratio, annualPremium: (ratio - 1) / t,
@@ -59,7 +59,7 @@
     var cost = number(provided(options.cost, 0), '연간 헤지 비용', 0, 1);
     // Risk aversion belongs only to B. An incomplete B control must not hide
     // independent manual/CIP or minimum-variance results in A and C.
-    var gamma = model === 'B' ? number(provided(options.riskAversion, 3), '위험회피계수', Number.EPSILON, 1e6) : null;
+    var gamma = model === 'B' ? number(provided(options.riskAversion, 3), '위험회피계수', .01, 1000) : null;
     var cov = input.correlation * input.assetVol * input.fxVol;
     var vfx = input.fxVol * input.fxVol, net = input.premium - cost, h = input.hedgeRatio;
     // d E[R_KRW]/dh = netPremium - E[X].

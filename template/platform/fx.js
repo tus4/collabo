@@ -101,12 +101,23 @@
     }
     return result;
   }
-  function forecast(history, options) {
+  // Share the same rules across monitoring, model A and imported settings.
+  // An inactive user drift cannot invalidate a data-estimated or random-walk
+  // forecast. Return a normalized copy without changing the caller's state.
+  function validateForecastOptions(options) {
     options = options || {};
-    var horizon = integer(options.months === undefined ? 12 : options.months, '전망 개월', 1, 120);
+    var months = integer(options.months === undefined ? 12 : options.months, '전망 개월', 1, 120);
     var lookback = integer(options.lookback === undefined ? 120 : options.lookback, '추정 개월', MIN_RETURNS, 1200);
     var method = options.method === undefined ? 'random-walk' : options.method;
     if (['random-walk', 'historical', 'scenario'].indexOf(method) < 0) throw new Error('알 수 없는 전망 방식입니다.');
+    var drift = method === 'scenario'
+      ? number(options.annualDrift === undefined ? 0 : options.annualDrift, '연간 로그 변화율', -1, 1)
+      : (finite(options.annualDrift) && Math.abs(options.annualDrift) <= 1 ? options.annualDrift : 0);
+    return Object.assign({}, options, { months: months, lookback: lookback, method: method, annualDrift: drift });
+  }
+  function forecast(history, options) {
+    options = validateForecastOptions(options);
+    var horizon = options.months, lookback = options.lookback, method = options.method;
     var cleanHistory = normalized(history, true);
     var sampled = completed(cleanHistory), ms = sampled.samples;
     if (!sampled.all.length) throw new Error('유효한 양수 환율 관측값이 없습니다.');
@@ -118,7 +129,7 @@
     var r = returnsOf(estimationSample), stats = moments(r.returns);
     if (stats.count < MIN_RETURNS) throw new Error('완결 월의 연속 월간 수익률이 최소 24개 필요합니다. 현재 ' + stats.count + '개입니다.');
     var drift = method === 'historical' ? stats.monthlyMean * 12 : 0;
-    if (method === 'scenario') drift = number(options.annualDrift === undefined ? 0 : options.annualDrift, '연간 로그 변화율', -10, 10);
+    if (method === 'scenario') drift = options.annualDrift;
     var variance = stats.monthlyVariance * 12, rows = [];
     for (var h = 0; h <= horizon; h++) {
       rows.push(Object.assign({ date: addMonthsClamped(anchor.date, h), horizon: h }, distribution(anchor.value, drift, variance, h)));
@@ -199,15 +210,25 @@
       horizonMonths: 1, fitting: lookback === null ? 'expanding' : 'rolling', lossTarget: 'level-median', warnings: warnings
     };
   }
-  function scenario(input) {
+  function validateScenario(input) {
     if (!input || typeof input !== 'object') throw new Error('환헤지 시나리오 입력이 필요합니다.');
-    var local = number(input.localReturn, '현지통화 수익률', -1, 100);
-    var fx = number(input.fxReturn, '환율 변화율', -1 + Number.EPSILON, 100);
-    var premium = number(input.premium, '수취 헤지 프리미엄', -1 + Number.EPSILON, 100);
-    var h = number(input.hedgeRatio, '헤지비율', 0, 1);
-    var av = number(input.assetVol, '자산 변동성', 0, 100);
-    var fv = number(input.fxVol, '환율 변동성', 0, 100);
-    var rho = number(input.correlation, '상관계수', -1, 1);
+    var valid = Object.assign({}, input, {
+      localReturn: number(input.localReturn, '현지통화 수익률', -1, 1),
+      fxReturn: number(input.fxReturn, '환율 변화율', -1, 1),
+      premium: number(input.premium, '수취 헤지 프리미엄', -1, 1),
+      hedgeRatio: number(input.hedgeRatio, '헤지비율', 0, 1),
+      assetVol: number(input.assetVol, '자산 변동성', 0, 1),
+      fxVol: number(input.fxVol, '환율 변동성', 0, 1),
+      correlation: number(input.correlation, '상관계수', -1, 1)
+    });
+    if (valid.fxReturn === -1) throw new Error('환율 변화율: -100%보다 커야 합니다.');
+    if (valid.premium === -1) throw new Error('수취 헤지 프리미엄: -100%보다 커야 합니다.');
+    return valid;
+  }
+  function scenario(input) {
+    input = validateScenario(input);
+    var local = input.localReturn, fx = input.fxReturn, premium = input.premium;
+    var h = input.hedgeRatio, av = input.assetVol, fv = input.fxVol, rho = input.correlation;
     var exposure = 1 - h;
     var unhedged = (1 + local) * (1 + fx) - 1;
     var pnl = h * (premium - fx);
@@ -225,5 +246,6 @@
       ]
     };
   }
-  return { points: points, monthly: monthly, forecast: forecast, evaluate: evaluate, scenario: scenario };
+  return { points: points, monthly: monthly, validateForecastOptions: validateForecastOptions,
+    forecast: forecast, evaluate: evaluate, validateScenario: validateScenario, scenario: scenario };
 }));
