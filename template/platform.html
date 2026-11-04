@@ -14,6 +14,10 @@
 <script src="platform/analytics.js" defer></script>
 <script src="platform/fx.js" defer></script>
 <script src="platform/models.js" defer></script>
+<script src="platform/vendor/xlsx.full.min.js" defer></script>
+<script src="platform/workbook.js" defer></script>
+<script src="platform/alternative.js" defer></script>
+<script src="platform/alternative-ui.js" defer></script>
 <script src="platform/reference.js" defer></script>
 <script src="platform/app.js" defer></script>
 </head>
@@ -126,7 +130,7 @@
         <article class="panel"><div class="panel-head"><h2>누적 성과</h2><span class="subtle-tag">시작 100 · 월별 리밸런싱</span></div><div class="reference-legend"><span><i class="reference-equity-color"></i>해외주식</span><span><i class="reference-bond-color"></i>국내채권</span><span><i class="reference-portfolio-color"></i>레퍼런스</span></div><div id="reference-chart" class="chart"></div></article>
       </div>
     </div>
-    <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">초기 요인식 가정</span></div><div class="table-scroll" id="correlation-table"></div><div class="reference-correlation-heading"><h3>레퍼런스</h3><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
+    <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">입력·추정 가정</span></div><div class="table-scroll" id="correlation-table"></div><div class="reference-correlation-heading"><h3>레퍼런스</h3><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
   </section>
   <section id="view-fx" class="view" aria-labelledby="fx-title" hidden>
     <div class="page-heading"><div><div class="eyebrow">FX OUTLOOK</div><h1 id="fx-title">Currency</h1></div><button class="button" id="forecast-csv">전망 CSV 내보내기</button></div>
@@ -154,8 +158,39 @@
     <div id="fx-panel-consensus" class="model-panel" role="tabpanel" data-fx-panel="consensus" aria-labelledby="fx-tab-consensus" hidden><div id="fx-model-consensus"></div></div>
   </section>
   <section id="view-alternative" class="view" aria-labelledby="alternative-title" hidden>
-    <div class="page-heading"><div><h1 id="alternative-title">Alternative</h1></div></div>
-    <article class="panel"><span class="muted">분석 항목 없음</span></article>
+    <div class="page-heading"><div><h1 id="alternative-title">Alternative</h1></div><button class="button" data-open="cma">CMA ↗</button></div>
+    <div id="alternative-error" class="notice error" role="alert" hidden></div>
+    <article class="panel"><div class="panel-head"><h2>대체자산</h2><span class="subtle-tag" id="alternative-count"></span></div><div class="table-scroll" id="alternative-list"></div></article>
+    <article class="panel">
+      <div class="panel-head"><h2>투자 가정</h2><span class="badge assumption" id="alternative-source">직접 입력</span></div>
+      <div class="alternative-fields">
+        <label>편집 대상<select id="alternative-select"><option value="new">새 대체자산</option></select></label>
+        <label>자산명<input id="alternative-name" maxlength="60" type="text" autocomplete="off"></label>
+        <label>기대수익률 (% / 연)<input id="alternative-mu" type="number" min="-100" max="100" step="0.01"></label>
+        <label>변동성 (% / 연)<input id="alternative-vol" type="number" min="0" max="100" step="0.01"></label>
+      </div>
+      <div class="panel-head alternative-subhead"><h3>CMA 자산과의 상관계수</h3><span class="subtle-tag">−1.00 ~ 1.00</span></div>
+      <div class="table-scroll" id="alternative-correlations"></div>
+      <div class="alternative-actions"><button class="button primary" id="alternative-apply">CMA에 추가</button><button class="button quiet" id="alternative-remove" hidden>대체자산 삭제</button><span id="alternative-status" role="status" aria-live="polite"></span></div>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><h2>엑셀 시계열</h2><span class="subtle-tag">XLSX · XLS · CSV · 최대 10 MB</span></div>
+      <div class="alternative-fields">
+        <label class="alternative-file-label">파일<input id="alternative-file" type="file" accept=".xlsx,.xls,.csv,.tsv"></label>
+        <label>시트<select id="alternative-sheet" disabled></select></label>
+        <label>날짜 열<select id="alternative-date" disabled></select></label>
+        <label>대체자산 열<select id="alternative-value" disabled></select></label>
+        <label>입력 유형<select id="alternative-kind"><option value="level">지수 / 가격 / NAV</option><option value="return">기간 수익률</option></select></label>
+        <label>수익률 단위<select id="alternative-unit" disabled><option value="decimal">소수 / Excel % 서식 · 0.01 = 1%</option><option value="percent">% 숫자 · 1 = 1%</option></select></label>
+        <label>관측 주기<select id="alternative-frequency"><option value="monthly">월간 · 연 12회</option><option value="quarterly">분기 · 연 4회</option><option value="daily">일간 · 연 252회</option></select></label>
+        <label>수익률 기준<select id="alternative-basis"><option value="">선택</option><option value="KRW-total">원화 · 총수익</option><option value="local-total">현지통화 · 총수익</option><option value="price">가격수익 · 분배금 제외</option></select></label>
+      </div>
+      <div class="subtle-tag" id="alternative-file-info">첫 행: 열 이름 · 이후 행: 날짜·관측값</div>
+      <div class="panel-head alternative-subhead"><h3>상관계수 비교 열</h3><span class="subtle-tag">동일 주기 · 동일 수익률 기준</span></div>
+      <div class="table-scroll" id="alternative-mapping"></div>
+      <div class="alternative-actions"><button class="button" id="alternative-estimate" disabled>추정값 계산</button><span class="subtle-tag">과거 산술평균 · 표본 표준편차 · 연율</span></div>
+      <div id="alternative-preview" role="status" aria-live="polite"></div>
+    </article>
   </section>
   <footer><span>COLLABO <span class="footer-separator">/</span> INVESTMENT ANALYTICS</span><span id="source-footer">연결 원자료 확인 중</span></footer>
 </main>
