@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 function boot(initialStorage = []) {
  const {window:dom,document} = parseHTML(fs.readFileSync(path.join(root,'template/platform.html'),'utf8'));
  // linkedom lacks the browser's writable HTMLSelectElement.value implementation.
- Object.defineProperty(dom.HTMLSelectElement.prototype, 'value', {get(){const o=[...this.options].find(x=>x.selected)||this.options[0];return o?o.value:''},set(v){const options=[...this.options];for(const o of options)o.selected=false;const match=options.find(o=>o.value===String(v));if(match)match.selected=true},configurable:true});
+ Object.defineProperty(dom.HTMLSelectElement.prototype, 'value', {get(){const o=[...this.options].find(x=>x.selected)||this.options[0];return o?o.value:''},set(v){for(const o of this.options)o.removeAttribute('selected');const chosen=[...this.options].find(o=>o.value===String(v));if(chosen)chosen.setAttribute('selected','')},configurable:true});
  const storage = new Map(initialStorage), downloads = [], fetches = [];
  const eventTarget = new dom.EventTarget();
  class TestURL extends URL { static createObjectURL(blob){downloads.push(blob);return 'blob:test';} static revokeObjectURL(){} }
@@ -55,6 +55,16 @@ function csvRows(text) {
  // Model exports quote every cell; quoted commas and escaped quotes are valid.
  return text.replace(/^\ufeff/,'').trim().split(/\r?\n/).map(line=>
   [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(match=>match[1].replace(/""/g,'"')));
+}
+const performanceValue=key=>document.querySelector('#performance-metrics [data-performance="'+key+'"] strong')?.textContent;
+function setReview(key,value,scope='performance-controls') {
+ const input=document.querySelector('#'+scope+' [data-review="'+key+'"]');
+ assert.ok(input,'missing risk control '+key);input.value=String(value);change(input);
+}
+async function performanceExport() {
+ const before=downloads.length;click('#performance-csv');assert.equal(downloads.length,before+1,'performance CSV missing');
+ const rows=csvRows(await downloads.at(-1).text()),header=rows.shift();
+ return rows.map(row=>Object.fromEntries(header.map((key,i)=>[key,row[i]])));
 }
 function csvObjects(text) {
  const rows=csvRows(text),header=rows.shift();
@@ -131,6 +141,55 @@ function dragTab(from,to,commit=true) {
  assert.equal(document.querySelectorAll('#overview-portfolios .summary-card').length,5,'five portfolio summary cards required');
  assert.equal(document.querySelectorAll('#overview-fx .summary-card').length,4,'four currency summary cards required');
  assert.equal(document.querySelectorAll('#overview-hedge .summary-card').length,3,'three hedge summary cards required');
+ // Overview and detail use one risk configuration and the selected portfolio.
+ assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-var]').length,5);
+ assert.equal(document.querySelectorAll('#performance-metrics [data-performance]').length,5);
+ for(const key of ['current','saa','minVol','maxSharpe','target']) {
+  click('[data-summary-portfolio="'+key+'"]');
+  assert.equal(performanceValue('marketVaR'),document.querySelector('[data-summary-var="'+key+'"] strong').textContent,'Overview/detail VaR mismatch for '+key);
+  assert.equal(performanceValue('conditionalVaR'),performanceValue('expectedShortfall'),'CVaR and ES must match for the Gaussian model');
+ }
+ click('[data-summary-portfolio="current"]');
+ const defaultVaR=performanceValue('marketVaR');
+ setReview('confidence',.99,'overview-risk-controls');
+ assert.equal(document.querySelector('#performance-controls [data-review="confidence"]').value,'0.99');
+ assert.ok(parseFloat(performanceValue('marketVaR'))>parseFloat(defaultVaR),'higher confidence must raise VaR');
+ setReview('horizonDays',1);
+ assert.equal(document.querySelector('#overview-risk-controls [data-review="horizonDays"]').value,'1');
+ const oneDayVaR=performanceValue('marketVaR');
+ setReview('horizonDays',21);assert.ok(parseFloat(performanceValue('marketVaR'))>parseFloat(oneDayVaR),'horizon change should recalculate VaR for default CMA');
+ const baseRisk=await performanceExport();
+ setReview('notional',20);
+ assert.equal(document.querySelector('#overview-risk-controls [data-review="notional"]').value,'20');
+ const scaledRisk=await performanceExport();
+ for(let i=0;i<baseRisk.length;i++) {
+  assert.equal(Number(scaledRisk[i].var_krw),2*Number(baseRisk[i].var_krw),'notional should scale loss amount');
+  assert.equal(scaledRisk[i].market_var_loss_fraction,baseRisk[i].market_var_loss_fraction,'notional must not change loss fraction');
+  assert.equal(scaledRisk[i].tracking_error_annual,baseRisk[i].tracking_error_annual,'notional must not change TE');
+ }
+ assert.equal(baseRisk.length,5);assert.equal(baseRisk.filter(row=>row.selected==='true').length,1);
+ assert.ok(baseRisk.every(row=>row.input_type==='CMA_ex_ante'&&row.method==='normal_absolute_loss'));
+ setReview('benchmark','current');
+ assert.equal(performanceValue('trackingError'),'0.00%');assert.equal(performanceValue('informationRatio'),'—','zero TE must not imply a defined IR');
+ assert.match(document.querySelector('#performance-context').textContent,/BM 현재/);
+ const samePortfolio=(await performanceExport()).find(row=>row.portfolio==='current');
+ assert.equal(samePortfolio.information_ratio_annual,'');assert.equal(samePortfolio.information_ratio_defined,'false');
+ setReview('benchmark','saa');assert.notEqual(performanceValue('trackingError'),'0.00%','changing benchmark should recalculate active risk');
+ const intactWeights=document.querySelector('#weights-table').innerHTML;
+ for(const invalid of ['', '0', '-1']) {
+  setReview('notional',invalid);
+  assert.equal(document.querySelector('#performance-metrics').textContent,'','invalid risk input must clear stale metrics');
+  assert.equal(document.querySelector('#performance-csv').disabled,true);
+  assert.equal(document.querySelector('#performance-error').hidden,false);
+  assert.equal(document.querySelector('#overview-risk-error').hidden,false);
+  assert.ok([...document.querySelectorAll('[data-summary-var] strong')].every(el=>el.textContent==='—'));
+  assert.equal(document.querySelector('#weights-table').innerHTML,intactWeights,'risk input must not destroy allocation');
+  assert.equal(document.querySelector('#allocation-results').hidden,false);
+ }
+ setReview('notional',10);setReview('confidence',.95);
+ assert.equal(document.querySelector('#performance-csv').disabled,false);assert.equal(document.querySelector('#performance-error').hidden,true);
+ assert.equal(performanceValue('marketVaR'),defaultVaR,'correcting inputs should restore original risk');
+ click('[data-tab="overview"]');
  assert.equal(document.querySelectorAll('#hedge-model-summary .monitor-model-card').length,3,'Hedge monitoring requires A/B/C cards');
  assert.equal(document.querySelectorAll('#fx-model-summary .monitor-model-card').length,4,'Currency monitoring requires all model statuses');
  assert.equal(document.getElementById('hedge-comparison-csv').disabled,true,'unconfirmed assumptions must not export model comparisons');
@@ -197,11 +256,36 @@ function dragTab(from,to,commit=true) {
   assert.equal(document.querySelector('#allocation-csv').disabled,true,'unavailable target cannot export stale weights');
   assert.equal(document.querySelectorAll('#weights-table tbody tr').length,0,'unavailable target must clear old weights');
   assert.ok(targetCard().querySelector('.summary-stat strong').textContent.includes('—'),'unavailable target card must clear old return');
+  assert.equal(document.querySelector('[data-summary-var="target"] strong').textContent,'—','unavailable target must not retain a stale VaR');
+  assert.equal(document.querySelector('#performance-metrics').textContent,'','unavailable selected target must clear risk results');
+  assert.equal(document.querySelector('#performance-csv').disabled,true,'unavailable selected target must not export risk');
+  assert.match(document.querySelector('#performance-error').textContent,/Target Return.*미산출/);
+  for(const key of ['current','saa','minVol','maxSharpe'])assert.notEqual(document.querySelector('[data-summary-var="'+key+'"] strong').textContent,'—','target failure must not suppress '+key+' VaR');
   assert.equal(document.querySelectorAll('#overview-portfolios .summary-card').length,5);
   const downloadsBefore=downloads.length;click('#allocation-csv');assert.equal(downloads.length,downloadsBefore);
   click('[data-portfolio="current"]');
   assert.equal(document.querySelector('#allocation-csv').disabled,false,'valid portfolio export must remain available');
   assert.equal(document.querySelectorAll('#weights-table tbody tr').length,8);
+  assert.equal(document.querySelector('#performance-csv').disabled,false,'valid portfolio risk export remains available when target is infeasible');
+  const absoluteVaR=performanceValue('marketVaR');assert.notEqual(absoluteVaR,'—');
+  const validBenchmarkRows=await performanceExport();assert.equal(validBenchmarkRows.length,5,'risk CSV must retain unavailable target status');
+  const unavailableTarget=validBenchmarkRows.find(row=>row.portfolio==='target');
+  assert.equal(unavailableTarget.portfolio_available,'false');assert.equal(unavailableTarget.benchmark_available,'true');
+  assert.equal(unavailableTarget.information_ratio_defined,'false');
+  for(const key of ['market_var_loss_fraction','conditional_var_loss_fraction','expected_shortfall_loss_fraction','var_krw','es_krw','tracking_error_annual','active_return_annual','information_ratio_annual'])assert.equal(unavailableTarget[key],'','unavailable target must not export stale/zero '+key);
+  setReview('benchmark','target');
+  assert.equal(performanceValue('marketVaR'),absoluteVaR,'missing benchmark must not suppress absolute risk');
+  assert.equal(performanceValue('conditionalVaR'),performanceValue('expectedShortfall'));
+  assert.equal(performanceValue('trackingError'),'—');assert.equal(performanceValue('informationRatio'),'—');
+  assert.match(document.querySelector('#performance-metrics').textContent,/벤치마크 미산출/);
+  assert.equal(document.querySelector('#overview-risk-error').hidden,true,'benchmark failure is separate from Overview VaR');
+  const missingBenchmarkRows=await performanceExport();assert.equal(missingBenchmarkRows.length,5);
+  for(const row of missingBenchmarkRows) {
+   assert.equal(row.benchmark_available,'false');assert.equal(row.information_ratio_defined,'false');
+   for(const key of ['tracking_error_annual','active_return_annual','information_ratio_annual'])assert.equal(row[key],'','missing benchmark must not fabricate '+key);
+   if(row.portfolio!=='target') {assert.equal(row.portfolio_available,'true');assert.notEqual(row.market_var_loss_fraction,'');assert.ok(Number.isFinite(Number(row.market_var_loss_fraction)));}
+  }
+  setReview('benchmark','saa');assert.notEqual(performanceValue('trackingError'),'—','restoring benchmark must recover active risk');
   click('[data-portfolio="target"]');assert.equal(targetControls.hidden,false);
  }
  editTarget('1','minimum');
@@ -211,6 +295,9 @@ function dragTab(from,to,commit=true) {
  editTarget('5.5','minimum');assert.equal(targetError.hidden,true,'correcting a target must restore results');
  assert.equal(document.querySelector('#allocation-csv').disabled,false);
  assert.equal(document.querySelectorAll('#weights-table tbody tr').length,8);
+ assert.equal(document.querySelectorAll('#performance-metrics [data-performance]').length,5,'correcting target must restore Performance Review');
+ assert.equal(document.querySelector('#performance-csv').disabled,false);
+ assert.equal(performanceValue('marketVaR'),document.querySelector('[data-summary-var="target"] strong').textContent,'recovered target risk must match Overview');
  click('[data-tab="overview"]');
  click('#overview-fx [data-summary-fx="A"]');
  assert.equal(document.getElementById('view-fx').hidden,false,'FX summary must open Currency');
@@ -473,10 +560,34 @@ function dragTab(from,to,commit=true) {
  click('#reset-scenario');assert.equal(targetInput.value,'5.50');assert.equal(targetMode.value,'minimum');
  click('#load-scenario');assert.equal(targetMode.value,'exact','reset must not overwrite saved target assumptions');
  editTarget('5.5','minimum');click('#save-scenario');
- const current=document.querySelector('[data-asset="0"][data-field="current"]');const original=current.value;current.value='99';change(current);assert.equal(document.querySelector('#allocation-results').hidden,true);assert.ok(document.querySelector('#cma-error').textContent.includes('100%'));assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-portfolio]').length,0,'invalid CMA must clear actionable stale Overview portfolio results');current.value=original;change(current);assert.equal(document.querySelector('#allocation-results').hidden,false);assert.equal(document.querySelectorAll('#overview-portfolios .summary-card').length,5,'corrected CMA must restore Overview cards');
+ const current=document.querySelector('[data-asset="0"][data-field="current"]');const original=current.value;current.value='99';change(current);assert.equal(document.querySelector('#allocation-results').hidden,true);assert.ok(document.querySelector('#cma-error').textContent.includes('100%'));assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-portfolio]').length,0,'invalid CMA must clear actionable stale Overview portfolio results');
+ assert.equal(document.querySelector('#performance-metrics').textContent,'','invalid CMA must clear stale Performance Review');assert.equal(document.querySelector('#performance-csv').disabled,true);
+ current.value=original;change(current);assert.equal(document.querySelector('#allocation-results').hidden,false);assert.equal(document.querySelectorAll('#overview-portfolios .summary-card').length,5,'corrected CMA must restore Overview cards');assert.equal(document.querySelectorAll('#performance-metrics [data-performance]').length,5);
  const corr=document.querySelector('[data-corr-i="0"][data-corr-j="1"]');const corrOriginal=corr.value;corr.value='0.20';change(corr);assert.equal(document.querySelector('#corr-1-0').textContent,'0.20');corr.value=corrOriginal;change(corr);
  const fileInput=document.querySelector('#scenario-file');async function importJson(obj){const value=JSON.stringify(obj);Object.defineProperty(fileInput,'files',{value:[{size:value.length,text:async()=>value}],configurable:true});change(fileInput);await wait();}
  await importJson({...saved,rf:.03});assert.equal(document.querySelector('#risk-free').value,'3.00');
+ // Review preferences round-trip, while legacy scenarios receive safe defaults.
+ const reviewed={...saved,rf:.03,review:{confidence:.975,horizonDays:63,notional:2500000000,benchmark:'minVol'}};
+ await importJson(reviewed);
+ assert.equal(document.querySelector('#performance-controls [data-review="confidence"]').value,'0.975');
+ assert.equal(document.querySelector('#overview-risk-controls [data-review="horizonDays"]').value,'63');
+ assert.equal(document.querySelector('#performance-controls [data-review="notional"]').value,'25');
+ assert.equal(document.querySelector('#performance-controls [data-review="benchmark"]').value,'minVol');
+ click('#save-scenario');setReview('confidence',.90);click('#load-scenario');
+ assert.equal(document.querySelector('#performance-controls [data-review="confidence"]').value,'0.975','saved review configuration must round-trip');
+ click('#export-scenario');const reviewExport=JSON.parse(await downloads.at(-1).text());assert.deepEqual(reviewExport.review,reviewed.review);
+ for(const invalidReview of [{...reviewed.review,notional:0},{...reviewed.review,benchmark:'missing'},{...reviewed.review,confidence:.999}]) {
+  const prior=document.querySelector('#performance-metrics').innerHTML;
+  await importJson({...reviewed,rf:.06,review:invalidReview});
+  assert.equal(document.querySelector('#risk-free').value,'3.00','invalid review import must preserve other fields');
+  assert.equal(document.querySelector('#performance-metrics').innerHTML,prior,'invalid review import must preserve previous risk results');
+  assert.match(document.querySelector('#toast').textContent,/실패/);
+ }
+ const legacyScenario={...saved,rf:.03};delete legacyScenario.review;await importJson(legacyScenario);
+ assert.equal(document.querySelector('#performance-controls [data-review="confidence"]').value,'0.95');
+ assert.equal(document.querySelector('#performance-controls [data-review="horizonDays"]').value,'21');
+ assert.equal(document.querySelector('#performance-controls [data-review="notional"]').value,'10');
+ assert.equal(document.querySelector('#performance-controls [data-review="benchmark"]').value,'saa');
  await importJson(savedTarget);assert.equal(targetInput.value,'5.37');assert.equal(targetMode.value,'exact');
  await importJson({...savedTarget,targetMode:'nearest'});assert.equal(targetMode.value,'exact');assert.match(document.querySelector('#toast').textContent,/실패/);
  const legacyTarget={...saved,target:.0537,rf:.03};delete legacyTarget.targetMode;
@@ -563,6 +674,12 @@ function dragTab(from,to,commit=true) {
  method.value='scenario';change(method);drift.value='10';change(drift);
  click('[data-tab="hedge"]');for(const [key,value] of [['localReturn','5'],['fxReturn','-10'],['premium','-2']]){const input=document.querySelector('[data-hedge="'+key+'"]');input.value=value;change(input);}confirm.checked=true;change(confirm);const ratio=document.querySelector('#hedge-ratio');ratio.value='100';ratio.dispatchEvent(new dom.Event('input',{bubbles:true}));assert.ok(document.querySelector('#hedge-metrics').textContent.includes('2.50'));
  click('[data-tab="allocation"]');const point=document.querySelector('[data-frontier="12"]');point.dispatchEvent(new dom.Event('click',{bubbles:true}));assert.ok(document.querySelector('#selected-summary').textContent.includes('조합 선택'));click('#allocation-csv');
+ assert.match(document.querySelector('#performance-context').textContent,/조합 선택/,'frontier selection must update Performance Review');
+ const customRisk=await performanceExport();assert.equal(customRisk.length,6);
+ assert.equal(customRisk.find(row=>row.selected==='true').portfolio,'custom');
+ assert.equal(customRisk.filter(row=>row.selected==='true').length,1);
+ const exportedCustom=customRisk.find(row=>row.portfolio==='custom');
+ assert.equal(performanceValue('marketVaR'),(Number(exportedCustom.market_var_loss_fraction)*100).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%','custom risk CSV/display mismatch');
  assert.ok(fetches.every(url=>url.startsWith('data/')||url==='platform/reference-data.json'),'unexpected external fetch');
  console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,referencePortfolio:true,legacyScenarioMigration:true,targetReturnConstraints:true,targetInfeasibilityRecovery:true,targetScenarioPersistence:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

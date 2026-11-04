@@ -46,7 +46,9 @@
     <div class="page-heading"><div><h1 id="overview-title">Overview</h1></div><button class="button" data-open="cma">CMA 편집 <span>↗</span></button></div>
     <div id="overview-status" class="overview-status" role="status" aria-live="polite"></div>
     <div id="overview-error" class="notice error" role="alert" hidden></div>
-    <div class="section-title"><h2>Portfolio</h2><span class="badge assumption">사용자 가정 · 연율</span></div>
+    <div class="section-title"><h2>Portfolio</h2><span class="badge assumption">CMA · 예상치</span></div>
+    <div id="overview-risk-controls" class="review-controls" aria-label="Portfolio VaR 설정"></div>
+    <div id="overview-risk-error" class="notice error compact" role="alert" hidden></div>
     <div id="overview-portfolios" class="summary-card-grid portfolio-summary-grid"></div>
     <div class="section-title"><h2>Currency</h2><button class="button small" data-open="fx">Currency ↗</button></div>
     <div id="overview-fx" class="summary-card-grid"></div>
@@ -72,6 +74,13 @@
         </article>
         <article class="panel selection-panel"><div class="panel-head"><div><div class="eyebrow">PORTFOLIO LENS</div><h2>비교 포트폴리오</h2></div></div><div class="portfolio-choices" id="portfolio-choices"></div><div class="selected-summary" id="selected-summary"></div></article>
       </div>
+      <article class="panel performance-review" id="performance-review" aria-labelledby="performance-review-title">
+        <div class="panel-head"><div><h2 id="performance-review-title">Performance Review</h2></div><button class="button small" id="performance-csv">CSV 내보내기</button></div>
+        <div id="performance-controls" class="review-controls" aria-label="Performance Review 설정"></div>
+        <div id="performance-error" class="notice error compact" role="alert" hidden></div>
+        <div id="performance-context" class="review-context" aria-live="polite"></div>
+        <div id="performance-metrics" class="review-metrics" aria-live="polite"></div>
+      </article>
       <div class="two-col"><article class="panel"><div class="panel-head"><div><h2>자산별 투자비중</h2></div><button class="button small" id="allocation-csv">CSV 내보내기</button></div><div class="table-scroll" id="weights-table"></div></article><article class="panel"><div class="panel-head"><div><h2>위험 기여도</h2></div><span class="subtle-tag">%p / 연율</span></div><div id="risk-bars" class="risk-bars"></div></article></div>
     </div>
   </section>

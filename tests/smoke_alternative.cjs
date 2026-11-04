@@ -54,6 +54,35 @@ async function add(name,mu=6,vol=10){set('alternative-select','new');set('altern
 function bookBytes(sheets){const workbook=XLSX.utils.book_new();for(const [name,rows] of sheets)XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet(rows),name);return XLSX.write(workbook,{type:'array',bookType:'xlsx',compression:true});}
 async function uploadWorkbook(name,bytes){await upload('alternative-file',{name,size:bytes.byteLength,arrayBuffer:async()=>bytes});}
 function near(a,b,tol=1e-8){assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);}
+function selectPortfolio(key){const button=document.querySelector('[data-portfolio="'+key+'"]');assert.ok(button);button.dispatchEvent(new dom.Event('click',{bubbles:true}));}
+function csvObjects(text){const rows=text.replace(/^\ufeff/,'').trim().split(/\r?\n/).map(line=>[...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(m=>m[1].replace(/""/g,'"'))),header=rows.shift();return rows.map(row=>Object.fromEntries(header.map((key,i)=>[key,row[i]])));}
+async function assertDynamicRisk(count,state,targetAvailable=true){
+  const previous=document.querySelector('#portfolio-choices .active')?.dataset.portfolio;
+  assert.equal(state.assets.length,count);
+  assert.equal(document.querySelectorAll('#overview-portfolios [data-summary-var]').length,5,'dynamic assets retain all five VaR summaries');
+  for(const key of ['current','saa','minVol','maxSharpe','target']){
+    const value=document.querySelector('[data-summary-var="'+key+'"] strong').textContent;
+    if(key==='target'&&!targetAvailable)assert.equal(value,'—');else assert.notEqual(value,'—',key+' VaR must include the dynamic asset universe');
+  }
+  selectPortfolio('current');
+  assert.equal(document.querySelectorAll('#performance-metrics [data-performance]').length,5);
+  const riskValue=key=>document.querySelector('#performance-metrics [data-performance="'+key+'"] strong').textContent;
+  assert.equal(riskValue('marketVaR'),document.querySelector('[data-summary-var="current"] strong').textContent);
+  assert.equal(riskValue('conditionalVaR'),riskValue('expectedShortfall'));
+  const before=downloads.length;click('performance-csv');assert.equal(downloads.length,before+1,'dynamic risk CSV must remain available');
+  const rows=csvObjects(await downloads.at(-1).text());assert.equal(rows.length,5);
+  const current=rows.find(row=>row.portfolio==='current');assert.equal(current.portfolio_available,'true');assert.equal(current.selected,'true');
+  assert.ok(Number.isFinite(Number(current.market_var_loss_fraction))&&current.market_var_loss_fraction!=='');
+  assert.ok(Number(current.expected_shortfall_loss_fraction)>=Number(current.market_var_loss_fraction),'ES must cover at least the VaR tail threshold');
+  // Independent scalar covariance expansion uses every current asset, including new alternatives.
+  const mu=state.assets.reduce((sum,asset)=>sum+asset.current*(asset.mu+state.shock),0);
+  const variance=state.assets.reduce((sum,a,i)=>sum+state.assets.reduce((inner,b,j)=>inner+a.current*b.current*a.vol*b.vol*state.corr[i][j],0),0);
+  near(state.review.confidence,.95);const horizon=state.review.horizonDays/252;
+  near(Number(current.market_var_loss_fraction),1.6448536269514715*Math.sqrt(variance*horizon)-mu*horizon,1e-9);
+  near(Number(current.var_krw),Number(current.market_var_loss_fraction)*state.review.notional,1e-6);
+  assert.equal(rows.find(row=>row.portfolio==='target').portfolio_available,String(targetAvailable));
+  if(previous)selectPortfolio(previous);
+}
 function assertReference(equityWeight){
   assert.equal($('reference-results').hidden,false,'Reference stays usable with dynamic CMA assets');
   assert.equal($('reference-error').hidden,true);
@@ -100,6 +129,7 @@ async function assertDynamicTarget(count,value,mode='exact'){
   assert.equal(state.corr.length,9);assert.equal(state.corr.at(-1).at(-1),1);
   assert.deepEqual(state.corr.at(-1).slice(0,-1),Array(8).fill(0));
   assert.deepEqual(state.assets.slice(0,8).map(a=>a.current),original.assets.map(a=>a.current));
+  await assertDynamicRisk(9,state);
   assertReference(.6);
   const beforeReferenceEdit=state;
   set('reference-equity',70,'input');assertReference(.7);
@@ -112,6 +142,7 @@ async function assertDynamicTarget(count,value,mode='exact'){
   assert.equal(document.querySelectorAll('#weights-table tbody tr').length,0);
   assert.equal($('allocation-csv').disabled,true);
   assert.equal(document.querySelectorAll('#overview-portfolios .summary-card.unavailable').length,1);
+  await assertDynamicRisk(9,state,false);
   await assertDynamicTarget(9,5.37);
 
   set('alternative-mu',7.25,'input');click('alternative-apply');await wait();
@@ -131,11 +162,13 @@ async function assertDynamicTarget(count,value,mode='exact'){
   assert.equal($('alternative-remove').hidden,true,'baseline alternative cannot be deleted');
   set('alternative-select',customId);
   setCma(0,'current',10);setCma(8,'current',10);
+  await assertDynamicRisk(9,await snapshot());
   click('alternative-remove');await wait();
   assert.match(error(),/0%/);assert.equal(rowCount(),9);
   setCma(8,'current',0);setCma(0,'current',20);
   await add('Private Debt',5,7);const debtId=(await snapshot()).assets.at(-1).id;
   assert.equal(rowCount(),10);set('alternative-select','new');assert.equal($('alternative-apply').disabled,true);
+  await assertDynamicRisk(10,await snapshot());
   await assertDynamicTarget(10,0,'minimum');
   await assertDynamicTarget(10,5.37);
   assertReference(.7);set('reference-equity',25,'input');assertReference(.25);
@@ -193,5 +226,5 @@ async function assertDynamicTarget(count,value,mode='exact'){
   set('alternative-kind','return');set('alternative-basis','KRW-total');
   click('alternative-estimate');await wait();assert.match(error(),/상관계수 산출 불가/);
   assert.equal($('alternative-preview').textContent,'');assert.equal(rowCount(),9);
-  console.log('Alternative DOM smoke: dynamic assets, atomic validation, weights/removal, 10-asset cap, v1/v2 persistence, real XLSX sheet mapping and estimates passed.');
+  console.log('Alternative DOM smoke: dynamic assets, Portfolio VaR/Performance Review, atomic validation, weights/removal, 10-asset cap, v1/v2 persistence, real XLSX sheet mapping and estimates passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

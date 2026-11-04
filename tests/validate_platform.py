@@ -13,6 +13,7 @@ import itertools
 import json
 import math
 from pathlib import Path
+from statistics import NormalDist
 import subprocess
 
 import numpy as np
@@ -276,7 +277,81 @@ def check_published_data():
     print(f"PASS published USDKRW: {result['observations']} monthly returns, asof {result['asof']}; flat tail {flat}")
 
 
+def check_performance_review():
+    """Independent normal-distribution oracle; never reads engine internals."""
+    normal = NormalDist()
+    cases = [
+        ("single asset", [.06], [.10], [[1]], [1], [1]),
+        ("correlated active loss", [.04, .08], [.10, .20], [[1, .25], [.25, 1]], [.6, .4], [.2, .8]),
+        ("negative correlation", [-.03, .11], [.13, .24], [[1, -.6], [-.6, 1]], [.25, .75], [.8, .2]),
+        # Different holdings can have zero active risk under singular covariance.
+        ("singular zero TE", [.02, .08], [.10, .10], [[1, 1], [1, 1]], [.25, .75], [.75, .25]),
+        ("perfect hedge", [.04, .08], [.10, .10], [[1, -1], [-1, 1]], [.5, .5], [1, 0]),
+        ("deterministic gain", [.06], [0], [[1]], [1], [1]),
+        ("deterministic loss", [-.06], [0], [[1]], [1], [1]),
+    ]
+    count = 0
+    for name, means, vols, corr, weights, benchmark in cases:
+        assets = [{"mu": mu, "vol": vol} for mu, vol in zip(means, vols)]
+        active_weights = [w-b for w, b in zip(weights, benchmark)]
+        # Explicit scalar covariance expansion is separate from JS matrix helpers.
+        def variance(exposure):
+            return sum(exposure[i]*exposure[j]*vols[i]*vols[j]*corr[i][j]
+                       for i in range(len(means)) for j in range(len(means)))
+
+        annual_mu = sum(w*mu for w, mu in zip(weights, means))
+        annual_vol = math.sqrt(max(0, variance(weights)))
+        active_return = sum(w*mu for w, mu in zip(active_weights, means))
+        te = math.sqrt(max(0, variance(active_weights)))
+        for confidence, days in [(.90, 1), (.95, 21), (.975, 10), (.99, 252)]:
+            horizon = days / 252
+            z = normal.inv_cdf(confidence)
+            horizon_mu = annual_mu*horizon
+            horizon_vol = annual_vol*math.sqrt(horizon)
+            expected_var = horizon_vol*z-horizon_mu
+            expected_es = horizon_vol*normal.pdf(z)/(1-confidence)-horizon_mu
+            notional = 1_000_000_000
+            result = call_js("analytics.js", "performanceReview", weights, benchmark, assets, corr,
+                             {"confidence": confidence, "horizonDays": days, "notional": notional})
+            # Allow a sub-nanounit inverse-normal approximation in JS.
+            close(result["marketVaR"], expected_var, atol=5e-9)
+            close(result["expectedShortfall"], expected_es, atol=5e-9)
+            close(result["conditionalVaR"], expected_es, atol=5e-9)
+            assert result["expectedShortfall"] == result["conditionalVaR"], name
+            assert result["expectedShortfall"] >= result["marketVaR"]-1e-12, name
+            close(result["varAmount"], expected_var*notional, atol=5)
+            close(result["esAmount"], expected_es*notional, atol=5)
+            close(result["horizonReturn"], horizon_mu)
+            close(result["horizonVol"], horizon_vol)
+            close(result["trackingError"], te)
+            close(result["activeReturn"], active_return)
+            if te <= 1e-14:
+                assert result["informationRatio"] is None, name
+            else:
+                close(result["informationRatio"], active_return/te)
+            if annual_vol == 0:
+                # Signed losses must not be clipped to zero for a certain gain.
+                close(result["marketVaR"], -horizon_mu)
+                close(result["expectedShortfall"], -horizon_mu)
+            count += 1
+
+    # Fixed external numerical oracle: covariance-sensitive active risk and sign.
+    means, vols, corr, weights, benchmark = cases[1][1:]
+    result = call_js("analytics.js", "performanceReview", weights, benchmark,
+                     [{"mu": mu, "vol": vol} for mu, vol in zip(means, vols)], corr,
+                     {"confidence": .95, "horizonDays": 21, "notional": 2_000_000_000})
+    close(result["marketVaR"], .04820797977090860, atol=5e-9)
+    close(result["expectedShortfall"], .06164027311942977, atol=5e-9)
+    close(result["trackingError"], .08)
+    close(result["informationRatio"], -.2)
+    close(result["varAmount"], result["marketVaR"]*2_000_000_000)
+    close(result["esAmount"], result["expectedShortfall"]*2_000_000_000)
+    print(f"PASS Performance Review: {count} independent NormalDist/covariance cases; "
+          "confidence, horizon, signed loss, notional, active return, singular zero TE, CVaR=ES")
+
+
 if __name__ == "__main__":
     check_portfolios()
+    check_performance_review()
     check_fx()
     check_published_data()
