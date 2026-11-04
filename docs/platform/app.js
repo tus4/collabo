@@ -6,6 +6,9 @@
   const NAMES = ['국내시가', '국내장부', '해외시가', '해외장부', '국내주식', '해외주식', '대체투자', '유동자산'];
   const STORAGE_KEY = 'collabo:investment-platform:scenario:v2';
   const LEGACY_STORAGE_KEY = 'collabo:investment-platform:scenario:v1';
+  const names = () => state.assets.map(a=>a.name);
+  const color = i => COLORS[i % COLORS.length];
+  let alternativeUI = null;
   const NAV_STORAGE_KEY = 'collabo:investment-platform:nav-order:v2';
   const TABS = {overview:'Overview',allocation:'Optimizer',cma:'CMA',hedge:'Hedge',fx:'Currency',alternative:'Alternative'};
   const LABELS = {current:'현재',saa:'SAA',minVol:'Min Vol',maxSharpe:'Max Sharpe',target:'목표 근접',custom:'조합 선택'};
@@ -38,6 +41,13 @@
   function requireNumber(value,label,min=-Infinity,max=Infinity) { if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max) throw new Error(label+' 입력 범위를 확인하십시오.'); return value; }
   function validateState(s) {
     if(!A) throw new Error('자산배분 계산 모듈을 불러오지 못했습니다.');
+    if(!Array.isArray(s.assets)||s.assets.length<8||s.assets.length>10)throw new Error('CMA는 기본 8개를 포함해 최대 10개 자산을 지원합니다.');
+    const ids=new Set(),assetNames=new Set();
+    s.assets.forEach((a,i)=>{
+      if(!a||typeof a.name!=='string'||!a.name.trim()||a.name.length>60||assetNames.has(a.name))throw new Error('자산명은 중복 없는 1~60자여야 합니다.');
+      if(typeof a.id!=='string'||ids.has(a.id)||(i<8?a.id!=='asset-'+i:!/^alternative-[1-9][0-9]*$/.test(a.id)||a.kind!=='alternative'))throw new Error('자산군 순서 또는 ID가 올바르지 않습니다.');
+      ids.add(a.id);assetNames.add(a.name);
+    });
     s.assets.forEach(a=>['mu','vol','min','max','current','saa'].forEach(k=>requireNumber(a[k],a.name+' '+k,k==='mu'?-1:0,1)));
     A.validateModel(s.assets,s.corr);
     A.portfolio(s.assets.map(a=>a.current),s.assets,s.corr,s.rf);
@@ -110,9 +120,10 @@
   }
   function renderCma() {
     const fields=[['mu','기대수익률'],['vol','변동성'],['min','하한'],['max','상한'],['current','현재 비중'],['saa','SAA 비중']];
-    $('cma-table').innerHTML='<table class="editable-table"><thead><tr><th>자산군</th>'+fields.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>'+state.assets.map((a,i)=>'<tr><td><span class="asset-dot" style="background:'+COLORS[i]+'"></span>'+esc(a.name)+'</td>'+fields.map(([key,label])=>'<td><input type="number" step="0.1" '+(key==='mu'?'min="-100" max="100"':'min="0" max="100"')+' value="'+(Number.isFinite(a[key])?number(a[key]*100).replace(/,/g,''):'')+'" data-asset="'+i+'" data-field="'+key+'" aria-label="'+esc(a.name+' '+label+' 퍼센트')+'"></td>').join('')+'</tr>').join('')+'</tbody></table>';
-    $('correlation-table').innerHTML='<table class="correlation-table"><thead><tr><th>상관계수</th>'+NAMES.map(n=>'<th>'+n+'</th>').join('')+'</tr></thead><tbody>'+NAMES.map((n,i)=>'<tr><td>'+n+'</td>'+NAMES.map((_,j)=>i<j?'<td><input type="number" min="-1" max="1" step="0.01" value="'+number(state.corr[i][j]).replace(/,/g,'')+'" data-corr-i="'+i+'" data-corr-j="'+j+'" aria-label="'+n+' 및 '+NAMES[j]+' 상관계수"></td>':'<td class="fixed-cell" id="corr-'+i+'-'+j+'">'+number(state.corr[i][j])+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+    $('cma-table').innerHTML='<table class="editable-table"><thead><tr><th>자산군</th>'+fields.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>'+state.assets.map((a,i)=>'<tr><td><span class="asset-dot" style="background:'+color(i)+'"></span>'+esc(a.name)+'</td>'+fields.map(([key,label])=>'<td><input type="number" step="0.1" '+(key==='mu'?'min="-100" max="100"':'min="0" max="100"')+' value="'+(Number.isFinite(a[key])?number(a[key]*100).replace(/,/g,''):'')+'" data-asset="'+i+'" data-field="'+key+'" aria-label="'+esc(a.name+' '+label+' 퍼센트')+'"></td>').join('')+'</tr>').join('')+'</tbody></table>';
+    $('correlation-table').innerHTML='<table class="correlation-table"><thead><tr><th>상관계수</th>'+names().map(n=>'<th>'+esc(n)+'</th>').join('')+'</tr></thead><tbody>'+names().map((n,i)=>'<tr><td>'+esc(n)+'</td>'+names().map((_,j)=>i<j?'<td><input type="number" min="-1" max="1" step="0.01" value="'+number(state.corr[i][j]).replace(/,/g,'')+'" data-corr-i="'+i+'" data-corr-j="'+j+'" aria-label="'+esc(n)+' 및 '+esc(names()[j])+' 상관계수"></td>':'<td class="fixed-cell" id="corr-'+i+'-'+j+'">'+number(state.corr[i][j])+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
     $('risk-free').value=number(state.rf*100).replace(/,/g,''); $('target-return').value=number(state.target*100).replace(/,/g,''); $('mu-shock').value=number(state.shock*100).replace(/,/g,''); renderTotals();
+    if(alternativeUI)alternativeUI.refresh();
   }
   function renderTotals() {
     const sums=['current','saa','min','max'].map(key=>state.assets.reduce((sum,a)=>sum+a[key],0));
@@ -136,9 +147,9 @@
     $('selected-summary').innerHTML='<div class="summary-row"><span>선택안</span><strong>'+LABELS[selected]+'</strong></div><div class="summary-row"><span>수익률 가정 이동</span><strong>'+signed(state.shock*100)+'%p</strong></div><div class="summary-row"><span>비중 합계</span><strong>'+pct(p.weights.reduce((a,b)=>a+b,0))+'</strong></div>';
     const min=allocation.result.frontier[0].return,max=allocation.result.frontier[allocation.result.frontier.length-1].return;
     $('target-note').textContent='목표 '+pct(state.target)+' · 근접 조합 '+pct(allocation.target.return)+' · 범위 '+pct(min)+'–'+pct(max)+(state.target<min||state.target>max?' · 범위 밖':'');
-    $('weights-table').innerHTML='<table><thead><tr><th>자산군</th><th>현재</th><th>SAA</th><th>'+LABELS[selected]+'</th><th>현재 대비</th></tr></thead><tbody>'+NAMES.map((n,i)=>{const delta=(p.weights[i]-state.assets[i].current)*100,rounded=Math.sign(delta)*Math.round(Math.abs(delta))||0;return '<tr><td><span class="asset-dot" style="background:'+COLORS[i]+'"></span>'+n+'</td><td>'+number(state.assets[i].current*100)+'%</td><td>'+number(state.assets[i].saa*100)+'%</td><td class="selected-col">'+number(p.weights[i]*100)+'%</td><td class="'+signClass(rounded)+'">'+(rounded>0?'+':'')+number(rounded,0)+'%p</td></tr>';}).join('')+'</tbody></table>';
+    $('weights-table').innerHTML='<table><thead><tr><th>자산군</th><th>현재</th><th>SAA</th><th>'+LABELS[selected]+'</th><th>현재 대비</th></tr></thead><tbody>'+names().map((n,i)=>{const delta=(p.weights[i]-state.assets[i].current)*100,rounded=Math.sign(delta)*Math.round(Math.abs(delta))||0;return '<tr><td><span class="asset-dot" style="background:'+color(i)+'"></span>'+esc(n)+'</td><td>'+number(state.assets[i].current*100)+'%</td><td>'+number(state.assets[i].saa*100)+'%</td><td class="selected-col">'+number(p.weights[i]*100)+'%</td><td class="'+signClass(rounded)+'">'+(rounded>0?'+':'')+number(rounded,0)+'%p</td></tr>';}).join('')+'</tbody></table>';
     const riskMax=Math.max(...p.contributions.map(Math.abs),.000001);
-    $('risk-bars').innerHTML=NAMES.map((n,i)=>'<div class="risk-row"><span>'+n+'</span><div class="risk-track"><div class="risk-fill" style="width:'+Math.min(100,Math.abs(p.contributions[i])/riskMax*100)+'%;background:'+(p.contributions[i]<0?'#d99191':COLORS[i])+'"></div></div><span class="risk-value '+signClass(p.contributions[i])+'">'+number(p.contributions[i]*100)+'</span></div>').join('');
+    $('risk-bars').innerHTML=names().map((n,i)=>'<div class="risk-row"><span>'+esc(n)+'</span><div class="risk-track"><div class="risk-fill" style="width:'+Math.min(100,Math.abs(p.contributions[i])/riskMax*100)+'%;background:'+(p.contributions[i]<0?'#d99191':color(i))+'"></div></div><span class="risk-value '+signClass(p.contributions[i])+'">'+number(p.contributions[i]*100)+'</span></div>').join('');
     drawFrontier(p);
     renderOverviewPortfolios();
   }
@@ -242,17 +253,32 @@
     }catch(error){$('oos-results').textContent='표본 외 평가: '+failMessage(error);}
   }
   function importState(raw) {
-    const count=raw?.version===1?7:NAMES.length;
-    if(!raw||![1,2].includes(raw.version)||!Array.isArray(raw.assets)||raw.assets.length!==count||!Array.isArray(raw.corr)||raw.corr.length!==count)throw new Error('지원하는 COLLABO 가정 파일이 아닙니다.');
-    const next=defaults();
-    const liquidAsset=next.assets[7];
-    next.assets=raw.assets.map((a,i)=>{if(!a||a.id!=='asset-'+i)throw new Error('자산군 순서 또는 ID가 올바르지 않습니다.');const result={id:'asset-'+i,name:NAMES[i]};['mu','vol','min','max','current','saa'].forEach(k=>result[k]=requireNumber(a[k],NAMES[i]+' '+k,k==='mu'?-1:0,1));return result;});
-    next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==count)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
-    if(raw.version===1){
-      next.assets.push(liquidAsset);
-      next.corr.forEach(row=>row.push(0));
-      next.corr.push([...Array(count).fill(0),1]);
-    }
+    if(!raw||![1,2].includes(raw.version)||!Array.isArray(raw.assets)||raw.assets.length<(raw.version===1?7:8)||raw.assets.length>10||(raw.version===1&&raw.assets.length!==7)||!Array.isArray(raw.corr)||raw.corr.length!==raw.assets.length)throw new Error('지원하는 COLLABO v1/v2 가정 파일이 아닙니다.');
+    const next=defaults(), liquidAsset=next.assets[7];
+    next.assets=raw.assets.map((a,i)=>{
+      if(!a)throw new Error('자산군 입력을 확인하십시오.');
+      const result={id:a.id,name:i<6||i===7||raw.version===1?NAMES[i]:a.name};
+      if(i>=8)result.kind=a.kind;
+      ['mu','vol','min','max','current','saa'].forEach(k=>result[k]=requireNumber(a[k],result.name+' '+k,k==='mu'?-1:0,1));
+      if(a.provenance){
+        const p=a.provenance;
+        if(!['manual','history','mixed'].includes(p.method))throw new Error('대체자산 추정 출처를 확인하십시오.');
+        result.provenance={method:p.method};
+        if(p.method!=='manual'){
+          for(const key of ['file','sheet','frequency','basis','start','end']){if(typeof p[key]!=='string'||p[key].length>255)throw new Error('대체자산 추정 출처를 확인하십시오.');result.provenance[key]=p[key];}
+          if(!['daily','monthly','quarterly'].includes(p.frequency)||!['KRW-total','local-total','price'].includes(p.basis))throw new Error('시계열 주기·수익률 기준을 확인하십시오.');
+          if(!Number.isInteger(p.count)||p.count<3||p.count>20000)throw new Error('추정 표본 수를 확인하십시오.');result.provenance.count=p.count;
+          if(!Array.isArray(p.compared)||p.compared.length>9)throw new Error('상관계수 추정 출처를 확인하십시오.');
+          result.provenance.compared=p.compared.map(c=>{
+            if(!c||!raw.assets.some(b=>b.id===c.id)||!Number.isInteger(c.count)||c.count<3||c.count>20000||typeof c.start!=='string'||typeof c.end!=='string'||c.start.length>10||c.end.length>10)throw new Error('상관계수 추정 표본을 확인하십시오.');
+            return {id:c.id,count:c.count,start:c.start,end:c.end};
+          });
+        }
+      }
+      return result;
+    });
+    next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==raw.assets.length)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
+    if(raw.version===1){next.assets.push(liquidAsset);next.corr.forEach(row=>row.push(0));next.corr.push([...Array(7).fill(0),1]);}
     next.rf=requireNumber(raw.rf,'무위험수익률',-.2,.5);next.target=requireNumber(raw.target,'목표수익률',-1,1);next.shock=requireNumber(raw.shock,'가정 이동',-.5,.5);
     if(raw.hedge){if(!['USD','JPY','EUR','AUD'].includes(raw.hedge.currency))throw new Error('지원하지 않는 통화입니다.');next.hedge.currency=raw.hedge.currency;['localReturn','fxReturn','premium','assetVol','fxVol','correlation','hedgeRatio'].forEach(k=>next.hedge[k]=requireNumber(raw.hedge[k],'환헤지 '+k,['assetVol','fxVol','hedgeRatio'].includes(k)?0:-1,1));next.hedge.confirmed=raw.hedge.confirmed===true;F.scenario(next.hedge);}
     if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:requireNumber(raw.fx.annualDrift,'로그 드리프트',-1,1),band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
@@ -263,15 +289,16 @@
   function wireEvents() {
     wireNavigation();
     wireModels();
+    alternativeUI=window.CollaboAlternativeUI.mount({getState:()=>state,apply:next=>applyState(importState(next)),validate:validateState,esc,number,notify});
     document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>activate(b.dataset.open)));
     window.addEventListener('hashchange',()=>activate(location.hash.slice(1)));
-    $('cma-table').addEventListener('change',e=>{if(e.target.dataset.asset!==undefined){state.assets[Number(e.target.dataset.asset)][e.target.dataset.field]=fieldNumber(e.target);recalculate();}});
-    $('correlation-table').addEventListener('change',e=>{const t=e.target;if(t.dataset.corrI!==undefined){const i=Number(t.dataset.corrI),j=Number(t.dataset.corrJ),v=fieldNumber(t,1);state.corr[i][j]=v;state.corr[j][i]=v;$('corr-'+j+'-'+i).textContent=number(v);recalculate();}});
+    $('cma-table').addEventListener('change',e=>{if(e.target.dataset.asset!==undefined){const a=state.assets[Number(e.target.dataset.asset)],key=e.target.dataset.field;a[key]=fieldNumber(e.target);if(['mu','vol'].includes(key)&&a.provenance?.method==='history')a.provenance.method='mixed';recalculate();alternativeUI.refresh();}});
+    $('correlation-table').addEventListener('change',e=>{const t=e.target;if(t.dataset.corrI!==undefined){const i=Number(t.dataset.corrI),j=Number(t.dataset.corrJ),v=fieldNumber(t,1);state.corr[i][j]=v;state.corr[j][i]=v;[i,j].forEach((k,index)=>{const a=state.assets[k];if(a.provenance?.method==='history')a.provenance.method='mixed';if(a.provenance?.compared)a.provenance.compared=a.provenance.compared.filter(c=>c.id!==state.assets[index===0?j:i].id);});$('corr-'+j+'-'+i).textContent=number(v);recalculate();alternativeUI.refresh();}});
     [['risk-free','rf'],['target-return','target'],['mu-shock','shock']].forEach(([id,key])=>$(id).addEventListener('change',()=>{state[key]=fieldNumber($(id));recalculate();}));
     $('portfolio-choices').addEventListener('click',e=>{const b=e.target.closest('[data-portfolio]');if(b&&allocation){selected=b.dataset.portfolio;renderAllocation();}});
     const selectFront=e=>{const point=e.target.closest('[data-frontier]');if(point&&allocation){customPoint=allocation.result.frontier[Number(point.dataset.frontier)];selected='custom';renderAllocation();}};
     $('frontier-chart').addEventListener('click',selectFront);$('frontier-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectFront(e);}});
-    $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...NAMES.map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
+    $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...names().map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
     $('save-scenario').addEventListener('click',()=>{try{importState(state);localStorage.setItem(STORAGE_KEY,JSON.stringify({...state,savedAt:new Date().toISOString()}));notify('현재 가정을 이 브라우저에 저장했습니다.');}catch(e){notify('저장 실패: '+failMessage(e));}});
     $('load-scenario').addEventListener('click',()=>{try{const value=localStorage.getItem(STORAGE_KEY)??localStorage.getItem(LEGACY_STORAGE_KEY);if(!value)throw new Error('저장된 가정이 없습니다.');applyState(importState(JSON.parse(value)));notify('저장된 가정을 불러왔습니다.');}catch(e){notify('불러오기 실패: '+failMessage(e));}});
     $('export-scenario').addEventListener('click',()=>{try{importState(state);download('collabo-scenario-v2.json',JSON.stringify({...state,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
@@ -305,7 +332,7 @@
     if(!allocation){$('overview-portfolios').innerHTML='';return;}
     $('overview-portfolios').innerHTML=['current','saa','minVol','maxSharpe','target'].map(key=>{
       const p=allocation[key];
-      return '<article class="summary-card'+(key===selected?' accent':'')+'"><div class="summary-card-head"><h3>'+LABELS[key]+'</h3><button class="button small" data-summary-portfolio="'+key+'">상세 ↗</button></div><div class="summary-stats">'+stat('기대수익률',pct(p.return))+stat('변동성',pct(p.vol))+stat('Sharpe',p.sharpeDefined===false?'—':number(p.sharpe))+'</div><div class="summary-weights">'+NAMES.map((name,i)=>'<div class="summary-weight"><span>'+name+'</span><div class="summary-weight-track"><span class="summary-weight-fill" style="width:'+(p.weights[i]*100).toFixed(2)+'%;background:'+COLORS[i]+'"></span></div><strong>'+number(p.weights[i]*100)+'%</strong></div>').join('')+'</div></article>';
+      return '<article class="summary-card'+(key===selected?' accent':'')+'"><div class="summary-card-head"><h3>'+LABELS[key]+'</h3><button class="button small" data-summary-portfolio="'+key+'">상세 ↗</button></div><div class="summary-stats">'+stat('기대수익률',pct(p.return))+stat('변동성',pct(p.vol))+stat('Sharpe',p.sharpeDefined===false?'—':number(p.sharpe))+'</div><div class="summary-weights">'+names().map((name,i)=>'<div class="summary-weight"><span>'+esc(name)+'</span><div class="summary-weight-track"><span class="summary-weight-fill" style="width:'+(p.weights[i]*100).toFixed(2)+'%;background:'+color(i)+'"></span></div><strong>'+number(p.weights[i]*100)+'%</strong></div>').join('')+'</div></article>';
     }).join('');
   }
   function quarterRows(result){return result?result.rows.filter(row=>[3,6,9,12].includes(row.horizon)):[];}
