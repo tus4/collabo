@@ -93,3 +93,80 @@ assert.ok(solved.maxSharpe.sharpe - gridSharpe < 2e-5);
 [solved.minVol, solved.maxSharpe, ...solved.frontier].forEach(p => verify(p, three));
 assert.equal(solved.meta.covarianceRegularization, 0);
 console.log('Allocation analytics: all closed-form, constraint, PSD, singular and grid checks passed.');
+
+// Gaussian tail references computed independently with scipy.stats.norm.
+// Percentages are decimal returns; VaR/ES are signed loss, with mean included.
+const riskAsset = [asset(0.05, 0.1)];
+const tailReferences = [
+  [0.90, 0.07815515655446004, 0.12549833193248685],
+  [0.95, 0.11448536269514722, 0.15627128075074258],
+  [0.975, 0.1459963984540054, 0.18378027922014134],
+  [0.99, 0.18263478740408408, 0.21652142203458055]
+];
+tailReferences.forEach(([confidence, varReference, esReference]) => {
+  const review = A.performanceReview([1], [1], riskAsset, [[1]], {confidence, horizonDays:252, notional:2000000});
+  near(review.marketVaR, varReference, 1e-8, 'independent Gaussian VaR reference');
+  near(review.expectedShortfall, esReference, 1e-8, 'independent Gaussian ES reference');
+  assert.equal(review.conditionalVaR, review.expectedShortfall);
+  assert.ok(review.expectedShortfall >= review.marketVaR);
+  near(review.varAmount, review.marketVaR * 2000000);
+  near(review.esAmount, review.expectedShortfall * 2000000);
+  assert.equal(review.trackingError, 0);
+  assert.equal(review.informationRatio, null);
+});
+const defaultReview = A.performanceReview([1], [1], riskAsset, [[1]]);
+assert.equal(defaultReview.confidence, 0.95);
+assert.equal(defaultReview.horizonDays, 21);
+assert.equal(defaultReview.notional, 1e9);
+near(defaultReview.horizonReturn, 0.05 / 12);
+near(defaultReview.horizonVol, 0.1 / Math.sqrt(12));
+const shortReview = A.performanceReview([1], [1], riskAsset, [[1]], {horizonDays:1});
+const longReview = A.performanceReview([1], [1], riskAsset, [[1]], {horizonDays:4});
+near(longReview.horizonReturn, 4 * shortReview.horizonReturn);
+near(longReview.marketVaR + longReview.horizonReturn, 2 * (shortReview.marketVaR + shortReview.horizonReturn));
+near(longReview.expectedShortfall + longReview.horizonReturn, 2 * (shortReview.expectedShortfall + shortReview.horizonReturn));
+
+// A two-asset long/short active exposure has variance .01 + .04 - .01 = .04.
+const activeReview = A.performanceReview([1, 0], [0, 1], two, corr);
+near(activeReview.trackingError, 0.2);
+near(activeReview.activeReturn, -0.04);
+near(activeReview.informationRatio, -0.2);
+const reverseReview = A.performanceReview([0, 1], [1, 0], two, corr, {horizonDays:252});
+near(reverseReview.trackingError, activeReview.trackingError);
+near(reverseReview.informationRatio, -activeReview.informationRatio);
+const mixReview = A.performanceReview([0.5, 0.5], [1, 0], two, corr);
+near(mixReview.trackingError, 0.1);
+near(mixReview.activeReturn, 0.02);
+near(mixReview.informationRatio, 0.2);
+const scaledNotional = A.performanceReview([1, 0], [0, 1], two, corr, {notional:2e9});
+near(scaledNotional.marketVaR, activeReview.marketVaR);
+near(scaledNotional.varAmount, 2 * activeReview.varAmount);
+near(scaledNotional.esAmount, 2 * activeReview.esAmount);
+
+// Deterministic gains retain negative loss quantiles; never clip them to zero.
+const deterministic = A.performanceReview([1], [1], [asset(0.04, 0)], [[1]], {horizonDays:252});
+near(deterministic.marketVaR, -0.04);
+near(deterministic.expectedShortfall, -0.04);
+assert.equal(deterministic.informationRatio, null);
+const deterministicLoss = A.performanceReview([1], [1], [asset(-0.04, 0)], [[1]], {horizonDays:252});
+near(deterministicLoss.marketVaR, 0.04);
+near(deterministicLoss.expectedShortfall, 0.04);
+
+// Different portfolios can have zero active risk under singular covariance.
+const singularReview = A.performanceReview([0.3, 0.7], [0.6, 0.4], [asset(.04,.1), asset(.08,.1)], [[1,1],[1,1]]);
+assert.equal(singularReview.trackingError, 0);
+assert.equal(singularReview.informationRatio, null);
+assert.ok(singularReview.activeReturn > 0);
+// Small actual variance must not be mistaken for roundoff cancellation.
+const tinyRisk = A.performanceReview([1, 0], [0, 1], [asset(1e-16,1e-16),asset(2e-16,2e-16)], [[1,0],[0,1]]);
+assert.ok(tinyRisk.trackingError > 0);
+near(tinyRisk.informationRatio, -1 / Math.sqrt(5));
+
+for (const options of [null, [], {confidence:0.5}, {confidence:1}, {confidence:NaN}, {confidence:'0.95'},
+  {horizonDays:0}, {horizonDays:1.5}, {horizonDays:Infinity}, {notional:0}, {notional:-1}, {notional:NaN}]) {
+  assert.throws(() => A.performanceReview([1], [1], riskAsset, [[1]], options));
+}
+assert.throws(() => A.performanceReview([1, 0], [0.2, 0.2], two, corr), /합계/);
+assert.throws(() => A.performanceReview([1, 0], [1], two, corr), /비중/);
+assert.throws(() => A.performanceReview([1, 0], [0, 1], two, [[1,.2],[.3,1]]), /대칭/);
+console.log('Performance review: independent Gaussian references, active-risk identities, horizon scaling and boundary checks passed.');

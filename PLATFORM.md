@@ -107,3 +107,39 @@ USDKRW의 월별 마지막 유효 관측으로 로그수익률을 만든다. 인
 - 실제 브라우저: `sites-preview start`가 `preview relay unavailable`로 실패하여 레이아웃·모바일 육안 검증 미완료.
 - 원본과 배포 파일: `template/platform.html`↔`docs/index.html`, `template/platform/*`↔`docs/platform/*` 동기화. 시장 자료 변경 없음.
 - 재개 조건: PAP B/C 명세·학습 산출물·컨센서스 자료를 허용 범위에서 확보한 뒤 실제 모형 동등성, 분기 출력과 불확실성 정의를 확인한다.
+
+## Portfolio VaR / Performance Review (2026-11-05)
+
+Overview의 현재·SAA·Min Vol·Max Sharpe·목표 근접 카드에 동일 설정의 Value at Risk 손실률과 금액을 표시한다. 상세 버튼은 해당 포트폴리오를 Optimizer로 전달한다. Performance Review는 선택 포트폴리오 또는 경계선에서 선택한 조합의 Market VaR, Conditional VaR, Expected Shortfall, Tracking Error, Information Ratio를 표시한다.
+
+기본 설정은 신뢰수준 95%, 보유기간 21거래일, 투자금액 10억 원, 벤치마크 SAA다. 신뢰수준 90/95/97.5/99%, 보유기간 1/5/10/21/63/126/252거래일을 지원한다. 투자금액은 1원 이상 10^16원 이하, 화면 입력 단위는 억 원이다. Overview와 Optimizer의 설정은 공유되며 CMA 시나리오 저장·불러오기·JSON 내보내기에 포함된다. 이전 JSON에 review 항목이 없으면 기본 설정을 사용한다. 입력이 유효하지 않으면 위험 수치를 비우고 CSV를 비활성화한다. 잘못된 CMA에서는 모든 포트폴리오 결과를 숨기거나 비운다.
+
+### 정의와 단위
+
+현재 모형은 편집 가능한 연간 CMA 평균·변동성·상관계수에 기반한 사전적(ex ante) 선형 정규모형이다. 실현 수익률 시계열을 재구성하거나 역사적 VaR·실현 IR를 추정하지 않는다. Market VaR는 포트폴리오 전체 시장손실의 분위수이며 marginal VaR를 의미하지 않는다. Conditional VaR는 동일 손실분포의 꼬리평균이며 GARCH 같은 조건부 변동성 모형을 의미하지 않는다.
+
+연간 공분산행렬을 Σ, 자산 평균 벡터를 μ, 포트폴리오 비중을 w, 벤치마크 비중을 b로 놓는다. 포트폴리오 평균은 μp = wᵀμ, 변동성은 σp = √(wᵀΣw)다. d거래일의 기간은 T = d/252로 환산한다. 평균은 μpT, 변동성은 σp√T이며, 비영 평균에서 VaR 자체를 단순히 √T 배율하지 않는다.
+
+손실을 L = −R로 정의하고 α를 신뢰수준, zα를 표준정규분포 α 분위수, φ를 표준정규밀도로 놓으면 다음과 같다.
+
+- Market VaR: zασp√T − μpT.
+- Conditional VaR = Expected Shortfall: φ(zα)σp√T/(1−α) − μpT.
+- Tracking Error: √[(w−b)ᵀΣ(w−b)], 연율.
+- 예상 초과수익: (w−b)ᵀμ, 연율.
+- Information Ratio: 연간 예상 초과수익 / 연간 Tracking Error.
+
+CVaR와 ES는 이 정규분포 정의에서 같은 값이며 두 카드를 합산하지 않는다. 금액은 소수 단위 손실률 × 투자금액(원)이다. 음수 VaR·ES를 0으로 자르지 않으며, 음수는 해당 꼬리 손실척도가 수익 영역에 있음을 의미한다. TE=0에서는 IR를 미정의(—)로 표시하고 CSV는 공란과 information_ratio_defined=false를 내보낸다. 동일 비중 외에도 특이 공분산의 상쇄로 TE=0이 될 수 있다. VaR 보유기간을 바꿔도 연율 TE/IR는 바뀌지 않는다.
+
+### 해석 범위와 내보내기
+
+고정 비중·고정 공분산·기간 비례 평균과 분산을 가정하며 복리, 두꺼운 꼬리, 자기상관, 시간가변 변동성, 모수 불확실성, 거래비용은 반영하지 않는다. 장부가 자산의 낮은 회계상 변동성은 낮은 경제적 시장위험의 근거가 아니며, 해당 CMA 입력을 사용한 Market VaR는 시장평가 손실을 검증한 값이 아니다. 최적화 대안과 같은 CMA로 분석한 예상 IR는 표본 외 성과가 아니다.
+
+Performance Review CSV는 5개 기본 포트폴리오 및 선택한 사용자 조합을 포함한다. 포트폴리오·선택 여부·벤치마크·입력 유형·모형·신뢰수준·거래일·원금·소수 단위 위험·원화 금액·연율 TE/IR·IR 정의 여부를 함께 기록한다. 실제 적용 가정은 기존 시나리오 JSON으로 보존한다. 원본과 생성 페이지의 계산 모듈·화면을 동기화하며 시장 데이터는 변경하지 않는다.
+
+방법론 근거:
+
+- [MathWorks, normal-distribution Expected Shortfall analytical formula](https://www.mathworks.com/help/risk/estimate-expected-shortfall-with-the-expectedShortfall-function.html)
+- [CFA Institute, ex ante and ex post information ratios](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/analysis-active-portfolio-management)
+- [MathWorks, Tracking Error and undefined Information Ratio at zero active risk](https://www.mathworks.com/help/finance/inforatio.html)
+
+검증 결과: JavaScript 계산 테스트 25개 통과, Python 테스트 73개 통과·1개 기존 skip, 독립 Python 위험지표 검증 28개 통과. DOM 동작 검증은 최신 8개 자산 구성에서 Overview·상세 값 일치, 입력 변경, TE=0, 오류 복구, CSV, 저장·가져오기, 구버전 마이그레이션을 확인했다. template/docs는 바이트 단위로 일치한다. 공유 미리보기 환경 점유로 이번 변경의 실제 브라우저·모바일 레이아웃 검증은 수행하지 못했다.

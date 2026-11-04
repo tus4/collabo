@@ -107,6 +107,69 @@
     return summarize(weights, assets, covariance(assets, corr), rf);
   }
 
+  // Acklam's rational inverse-normal approximation (relative error < 1.2e-9).
+  // The upper tail uses log1p so confidence levels near one retain precision.
+  function normalQuantile(p) {
+    var a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239];
+    var b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+    var c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+    var d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+    var q, r;
+    if (p > 0.97575) {
+      q = Math.sqrt(-2 * Math.log1p(-p));
+      return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+    }
+    q = p - 0.5; r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
+      (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  }
+
+  // Ex-ante Gaussian CMA analysis, not a realized-performance backtest.
+  // Loss = -return. Negative VaR/ES therefore represent a gain at that tail.
+  // For this continuous loss distribution conditional VaR and ES coincide.
+  function performanceReview(weights, benchmarkWeights, assets, corr, options) {
+    options = options === undefined ? {} : options;
+    if (!options || typeof options !== 'object' || Array.isArray(options)) fail('위험 분석 설정을 확인해 주세요.');
+    var confidence = options.confidence === undefined ? 0.95 : options.confidence;
+    var horizonDays = options.horizonDays === undefined ? 21 : options.horizonDays;
+    var notional = options.notional === undefined ? 1000000000 : options.notional;
+    if (!finite(confidence) || confidence <= 0.5 || confidence >= 1) fail('신뢰수준은 50% 초과, 100% 미만이어야 합니다.');
+    if (!Number.isSafeInteger(horizonDays) || horizonDays < 1) fail('보유기간은 1 이상의 정수 영업일이어야 합니다.');
+    if (!finite(notional) || notional <= 0) fail('투자금액은 0보다 큰 유한한 숫자여야 합니다.');
+    var p = portfolio(weights, assets, corr, 0);
+    var benchmark = portfolio(benchmarkWeights, assets, corr, 0);
+    var cov = covariance(assets, corr);
+    var activeWeights = weights.map(function (weight, i) { return weight - benchmarkWeights[i]; });
+    var activeReturn = dot(activeWeights, assets.map(function (asset) { return asset.mu; }));
+    var activeVariance = dot(activeWeights, multiply(cov, activeWeights));
+    // Suppress only cancellation-scale roundoff, including singular perfect-
+    // correlation cases; a small but genuinely positive active risk is retained.
+    var varianceScale = 0;
+    activeWeights.forEach(function (w, i) {
+      activeWeights.forEach(function (v, j) { varianceScale += Math.abs(w * cov[i][j] * v); });
+    });
+    if (Math.abs(activeVariance) <= 64 * Number.EPSILON * varianceScale) activeVariance = 0;
+    var trackingError = Math.sqrt(Math.max(0, activeVariance));
+    var horizonYears = horizonDays / 252;
+    var horizonReturn = p.return * horizonYears;
+    var horizonVol = p.vol * Math.sqrt(horizonYears);
+    var z = normalQuantile(confidence);
+    var marketVaR = z * horizonVol - horizonReturn;
+    var expectedShortfall = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI) / (1 - confidence) * horizonVol - horizonReturn;
+    var informationRatio = trackingError > 0 ? activeReturn / trackingError : null;
+    var varAmount = marketVaR * notional, esAmount = expectedShortfall * notional;
+    if (![marketVaR, expectedShortfall, trackingError, activeReturn, varAmount, esAmount].every(finite) ||
+        (informationRatio !== null && !finite(informationRatio))) fail('위험 분석 계산 범위를 초과했습니다. 입력 규모를 확인해 주세요.');
+    return {
+      marketVaR: marketVaR, conditionalVaR: expectedShortfall, expectedShortfall: expectedShortfall,
+      trackingError: trackingError, informationRatio: informationRatio, activeReturn: activeReturn,
+      varAmount: varAmount, esAmount: esAmount, confidence: confidence, horizonDays: horizonDays,
+      notional: notional, horizonYears: horizonYears, horizonReturn: horizonReturn, horizonVol: horizonVol,
+      annualReturn: p.return, annualVol: p.vol, benchmarkReturn: benchmark.return, benchmarkVol: benchmark.vol
+    };
+  }
+
   // Rank-revealing elimination also handles singular covariance matrices.
   // Free coordinates are set to zero. Enumerating boundary faces supplies a
   // feasible representative when a stationary solution has a null space.
@@ -312,5 +375,5 @@
     });
   }
 
-  return { validateModel: validateModel, portfolio: portfolio, optimize: optimize, selectTarget: selectTarget };
+  return { validateModel: validateModel, portfolio: portfolio, performanceReview: performanceReview, optimize: optimize, selectTarget: selectTarget };
 }));
