@@ -288,10 +288,38 @@
     var frontier = [];
     if (maxX - minX <= 1e-10) frontier.push(minVol);
     else for (var i = 0; i < points; i++) frontier.push(solveAt(minX + (maxX - minX) * i / (points - 1)));
+    // The full feasible return interval also includes the lower, inefficient
+    // branch. Equality targets must not be restricted to displayed frontier dots.
+    var indices = assets.map(function (_, i) { return i; });
+    var means = assets.map(function (asset) { return asset.mu; });
+    var returnRange = {
+      min: extreme(indices, 1, compiled.lower, compiled.upper, means, false).value,
+      max: extreme(indices, 1, compiled.lower, compiled.upper, means, true).value
+    };
+    var targetTolerance = 1e-9 * Math.max(1, Math.abs(returnRange.min), Math.abs(returnRange.max));
+    function solveTarget(targetReturn, mode) {
+      if (!finite(targetReturn)) fail('목표 기대수익률은 유한한 숫자여야 합니다.');
+      if (mode !== 'minimum' && mode !== 'exact') fail('목표수익률 조건은 이상 또는 일치로 선택해 주세요.');
+      if (targetReturn > returnRange.max + targetTolerance || (mode === 'exact' && targetReturn < returnRange.min - targetTolerance)) {
+        fail('목표 기대수익률을 달성할 수 없습니다. 목표수익률 또는 자산별 비중 한도를 조정해 주세요.');
+      }
+      // A nonbinding lower bound preserves the global minimum-variance solution.
+      var point = mode === 'minimum' && minVol.return >= targetReturn - targetTolerance ? minVol :
+        solveAt((Math.max(returnRange.min, Math.min(returnRange.max, targetReturn)) - compiled.offset) / compiled.scale);
+      var residual = point.return - targetReturn;
+      if ((mode === 'exact' ? Math.abs(residual) > targetTolerance : residual < -targetTolerance) ||
+          Math.abs(point.weights.reduce(function (sum, w) { return sum + w; }, 0) - 1) > FEAS ||
+          point.weights.some(function (w, i) { return !finite(w) || w < compiled.lower[i] - FEAS || w > compiled.upper[i] + FEAS; })) {
+        fail('수치 오차로 목표수익률 제약을 충족하지 못했습니다. 입력값을 확인해 주세요.');
+      }
+      return point;
+    }
     return {
       minVol: minVol,
       maxSharpe: maxSharpe,
       frontier: frontier,
+      returnRange: returnRange,
+      solveTarget: solveTarget,
       meta: {
         solver: 'bounded-simplex active-face quadratic optimization',
         units: 'annual decimal',
@@ -300,16 +328,15 @@
         zeroVolSharpe: 'undefined; extended-real values used only for optimization ordering',
         feasibilityTolerance: FEAS,
         frontierPoints: frontier.length,
-        targetSelection: 'nearest computed frontier return'
+        targetSelection: 'minimum variance subject to minimum or exact target return',
+        targetReturnTolerance: targetTolerance
       }
     };
   }
 
-  function selectTarget(result, targetReturn) {
-    if (!result || !Array.isArray(result.frontier) || !result.frontier.length || !finite(targetReturn)) fail('목표수익률과 효율적 경계선 결과를 확인해 주세요.');
-    return result.frontier.reduce(function (best, point) {
-      return Math.abs(point.return - targetReturn) < Math.abs(best.return - targetReturn) ? point : best;
-    });
+  function selectTarget(result, targetReturn, mode) {
+    if (!result || typeof result.solveTarget !== 'function') fail('최적화 결과를 다시 계산해 주세요.');
+    return result.solveTarget(targetReturn, mode === undefined ? 'minimum' : mode);
   }
 
   return { validateModel: validateModel, portfolio: portfolio, optimize: optimize, selectTarget: selectTarget };

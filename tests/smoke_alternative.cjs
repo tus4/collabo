@@ -66,6 +66,20 @@ function assertReference(equityWeight){
   assert.doesNotMatch($('reference-metrics').textContent+$('reference-assets').textContent,/undefined|NaN/);
   near(Number($('reference-equity').value)/100,equityWeight);
 }
+async function assertDynamicTarget(count,value,mode='exact'){
+  set('target-mode',mode);set('target-return',value,'input');
+  assert.equal($('target-error').hidden,true,'dynamic CMA target remains feasible');
+  assert.equal(document.querySelectorAll('#weights-table tbody tr').length,count);
+  assert.equal(document.querySelector('[data-summary-portfolio="target"]').closest('.summary-card').querySelectorAll('.summary-weight').length,count);
+  click('allocation-csv');
+  const rows=(await downloads.at(-1).text()).replace(/^\ufeff/,'').trim().split(/\r?\n/).map(line=>[...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(m=>m[1].replace(/""/g,'"')));
+  const header=rows.shift(),weight=header.indexOf('selected_weight'),mu=header.indexOf('assumption_mu_annual');
+  assert.equal(rows.length,count,'Target export includes all added assets');
+  near(rows.reduce((sum,row)=>sum+Number(row[weight]),0),1);
+  const actual=rows.reduce((sum,row)=>sum+Number(row[weight])*Number(row[mu]),0);
+  if(mode==='exact')near(actual,value/100,1e-9);else assert.ok(actual>=value/100-1e-9);
+  const s=await snapshot();near(s.target,value/100);assert.equal(s.targetMode,mode);
+}
 
 (async()=>{
   await wait();
@@ -91,9 +105,19 @@ function assertReference(equityWeight){
   set('reference-equity',70,'input');assertReference(.7);
   state=await snapshot();assert.deepEqual(state.assets,beforeReferenceEdit.assets);assert.deepEqual(state.corr,beforeReferenceEdit.corr);
   near(state.reference.equityWeight,.7);
+  await assertDynamicTarget(9,5.37);
+  set('target-return',100,'input');
+  assert.equal($('target-error').hidden,false,'infeasible Target fails without invalidating dynamic CMA');
+  assert.equal($('allocation-results').hidden,false);
+  assert.equal(document.querySelectorAll('#weights-table tbody tr').length,0);
+  assert.equal($('allocation-csv').disabled,true);
+  assert.equal(document.querySelectorAll('#overview-portfolios .summary-card.unavailable').length,1);
+  await assertDynamicTarget(9,5.37);
 
   set('alternative-mu',7.25,'input');click('alternative-apply');await wait();
   state=await snapshot();near(state.assets.at(-1).mu,.0725);
+  near(state.target,.0537);assert.equal(state.targetMode,'exact','Alternative apply keeps target assumptions');
+  await assertDynamicTarget(9,5.37);
   assertReference(.7);
   const valid=state;
   set('alternative-vol',-1,'input');click('alternative-apply');await wait();
@@ -112,6 +136,8 @@ function assertReference(equityWeight){
   setCma(8,'current',0);setCma(0,'current',20);
   await add('Private Debt',5,7);const debtId=(await snapshot()).assets.at(-1).id;
   assert.equal(rowCount(),10);set('alternative-select','new');assert.equal($('alternative-apply').disabled,true);
+  await assertDynamicTarget(10,0,'minimum');
+  await assertDynamicTarget(10,5.37);
   assertReference(.7);set('reference-equity',25,'input');assertReference(.25);
   set('alternative-select',customId);click('alternative-remove');await wait();
   state=await snapshot();assert.equal(state.assets.length,9);assert.equal(state.assets.at(-1).id,debtId);
@@ -122,6 +148,7 @@ function assertReference(equityWeight){
   assert.equal(saved.version,2);assert.equal(saved.assets.length,9);
   set('alternative-select',customId);set('alternative-mu',9,'input');click('alternative-apply');await wait();
   click('load-scenario');await wait();state=await snapshot();near(state.assets.find(a=>a.id===customId).mu,.05);
+  near(state.target,.0537);assert.equal(state.targetMode,'exact','dynamic asset save/load keeps exact target');
   assertReference(.25);
   await importScenario(saved);assert.equal(rowCount(),9);
   const v1={...original,version:1,assets:original.assets.slice(0,7),corr:original.corr.slice(0,7).map(row=>row.slice(0,7))};

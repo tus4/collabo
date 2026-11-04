@@ -11,8 +11,8 @@
   let alternativeUI = null;
   const NAV_STORAGE_KEY = 'collabo:investment-platform:nav-order:v2';
   const TABS = {overview:'Overview',allocation:'Optimizer',cma:'CMA',hedge:'Hedge',fx:'Currency',alternative:'Alternative'};
-  const LABELS = {current:'현재',saa:'SAA',minVol:'Min Vol',maxSharpe:'Max Sharpe',target:'목표 근접',custom:'조합 선택'};
-  const CAPTIONS = {current:'현재 투자비중',saa:'전략 자산배분',minVol:'최소 변동성',maxSharpe:'최대 샤프비율',target:'목표수익률 근접 조합'};
+  const LABELS = {current:'현재',saa:'SAA',minVol:'Min Vol',maxSharpe:'Max Sharpe',target:'Target Return',custom:'조합 선택'};
+  const CAPTIONS = {current:'현재 투자비중',saa:'전략 자산배분',minVol:'최소 변동성',maxSharpe:'최대 샤프비율',target:'수익률 제약 · 최소 변동성'};
   let market = null, fxHistory = [], allocation = null, forecast = null, selected = 'maxSharpe', customPoint = null, currentTab = 'overview', hedgeSeq = 0, toastTimer;
   const cache = new Map();
   let modelForecast=null, modelForecastKey='', hedgeModels={}, hedgeBaseline=null, hedgeReasons={}, fxModelError='';
@@ -26,7 +26,7 @@
     const current = [.20,.15,.15,.10,.10,.15,.15,0], saa = [.25,.15,.15,.10,.10,.15,.10,0];
     const factors = [[.55,0,0],[.20,0,0],[.40,0,.60],[.20,0,.25],[0,.75,0],[0,.70,.35],[.15,.40,.15],[0,0,0]];
     return {version:2, assets:NAMES.map((name,i)=>({id:'asset-'+i,name,mu:mu[i],vol:vol[i],min:0,max:i===7?1:.5,current:current[i],saa:saa[i]})),
-      corr:factors.map((f,i)=>factors.map((g,j)=>i===j?1:f.reduce((s,v,k)=>s+v*g[k],0))),rf:.025,target:.055,shock:0,
+      corr:factors.map((f,i)=>factors.map((g,j)=>i===j?1:f.reduce((s,v,k)=>s+v*g[k],0))),rf:.025,target:.055,targetMode:'minimum',shock:0,
       hedge:{currency:'USD',localReturn:.05,fxReturn:0,premium:0,hedgeRatio:.5,assetVol:.08,fxVol:.10,correlation:0,confirmed:false},
       models:{hedgeCost:0,riskAversion:3,domesticRate:null,foreignRate:null},
       reference:{equityWeight:.6,lookback:120,basis:'local'},
@@ -42,7 +42,7 @@
   function showError(id,message) { $(id).textContent=message||''; $(id).hidden=!message; }
   function failMessage(error) { return error instanceof Error?error.message:String(error); }
   function requireNumber(value,label,min=-Infinity,max=Infinity) { if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max) throw new Error(label+' 입력 범위를 확인하십시오.'); return value; }
-  function validateState(s) {
+  function validateState(s, checkTarget=true) {
     if(!A) throw new Error('자산배분 계산 모듈을 불러오지 못했습니다.');
     if(!Array.isArray(s.assets)||s.assets.length<8||s.assets.length>10)throw new Error('CMA는 기본 8개를 포함해 최대 10개 자산을 지원합니다.');
     const ids=new Set(),assetNames=new Set();
@@ -55,9 +55,14 @@
     A.validateModel(s.assets,s.corr);
     A.portfolio(s.assets.map(a=>a.current),s.assets,s.corr,s.rf);
     A.portfolio(s.assets.map(a=>a.saa),s.assets,s.corr,s.rf);
-    requireNumber(s.rf,'무위험수익률',-.2,.5); requireNumber(s.target,'목표수익률',-1,1); requireNumber(s.shock,'수익률 가정 이동',-.5,.5);
+    requireNumber(s.rf,'무위험수익률',-.2,.5); if(checkTarget)validateTarget(s); requireNumber(s.shock,'수익률 가정 이동',-.5,.5);
     return true;
   }
+  function validateTarget(s) {
+    requireNumber(s.target,'목표수익률',-1,1);
+    if(!['minimum','exact'].includes(s.targetMode))throw new Error('목표수익률 제약조건을 확인하십시오.');
+  }
+  function targetConstraint() { return (state.targetMode==='exact'?'= ':'≥ ')+pct(state.target); }
   function fieldNumber(input,scale=100) { const text=input.value.trim(); return text===''?NaN:Number(text)/scale; }
   function download(filename,content,type) { const blob=new Blob([content],{type:type||'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000); }
   function csv(rows) { return '\ufeff'+rows.map(row=>row.map(value=>{let text=String(value??'');if(typeof value==='string'&&/^[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';}).join(',')).join('\r\n'); }
@@ -125,7 +130,7 @@
     const fields=[['mu','기대수익률'],['vol','변동성'],['min','하한'],['max','상한'],['current','현재 비중'],['saa','SAA 비중']];
     $('cma-table').innerHTML='<table class="editable-table"><thead><tr><th>자산군</th>'+fields.map(f=>'<th>'+f[1]+'</th>').join('')+'</tr></thead><tbody>'+state.assets.map((a,i)=>'<tr><td><span class="asset-dot" style="background:'+color(i)+'"></span>'+esc(a.name)+'</td>'+fields.map(([key,label])=>'<td><input type="number" step="0.1" '+(key==='mu'?'min="-100" max="100"':'min="0" max="100"')+' value="'+(Number.isFinite(a[key])?number(a[key]*100).replace(/,/g,''):'')+'" data-asset="'+i+'" data-field="'+key+'" aria-label="'+esc(a.name+' '+label+' 퍼센트')+'"></td>').join('')+'</tr>').join('')+'</tbody></table>';
     $('correlation-table').innerHTML='<table class="correlation-table"><thead><tr><th>상관계수</th>'+names().map(n=>'<th>'+esc(n)+'</th>').join('')+'</tr></thead><tbody>'+names().map((n,i)=>'<tr><td>'+esc(n)+'</td>'+names().map((_,j)=>i<j?'<td><input type="number" min="-1" max="1" step="0.01" value="'+number(state.corr[i][j]).replace(/,/g,'')+'" data-corr-i="'+i+'" data-corr-j="'+j+'" aria-label="'+esc(n)+' 및 '+esc(names()[j])+' 상관계수"></td>':'<td class="fixed-cell" id="corr-'+i+'-'+j+'">'+number(state.corr[i][j])+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
-    $('risk-free').value=number(state.rf*100).replace(/,/g,''); $('target-return').value=number(state.target*100).replace(/,/g,''); $('mu-shock').value=number(state.shock*100).replace(/,/g,''); renderTotals();
+    $('risk-free').value=number(state.rf*100).replace(/,/g,''); $('target-return').value=number(state.target*100).replace(/,/g,''); $('target-mode').value=state.targetMode; $('mu-shock').value=number(state.shock*100).replace(/,/g,''); renderTotals();
     if(alternativeUI)alternativeUI.refresh();
   }
   function renderTotals() {
@@ -134,22 +139,36 @@
   }
   function recalculate() {
     renderTotals();
-    try { validateState(state); const assets=state.assets.map(a=>({...a,mu:a.mu+state.shock}));
+    try { validateState(state,false); const assets=state.assets.map(a=>({...a,mu:a.mu+state.shock}));
       const result=A.optimize(assets,state.corr,{rf:state.rf,points:35});
-      allocation={assets,result,current:A.portfolio(assets.map(a=>a.current),assets,state.corr,state.rf),saa:A.portfolio(assets.map(a=>a.saa),assets,state.corr,state.rf),minVol:result.minVol,maxSharpe:result.maxSharpe,target:A.selectTarget(result,state.target)};
+      allocation={assets,result,current:A.portfolio(assets.map(a=>a.current),assets,state.corr,state.rf),saa:A.portfolio(assets.map(a=>a.saa),assets,state.corr,state.rf),minVol:result.minVol,maxSharpe:result.maxSharpe,target:null,targetError:''};
       showError('model-error','');showError('cma-error','');$('allocation-results').hidden=false;$('export-scenario').disabled=false;
-      if(selected==='custom'){selected='maxSharpe';customPoint=null;} renderAllocation();
-    } catch(error) { allocation=null; const message='입력 오류 · '+failMessage(error); showError('model-error',message);showError('cma-error',message);$('allocation-results').hidden=true;$('portfolio-metrics').innerHTML=metric('유효한 가정 필요','—','','CMA에서 입력값을 확인하십시오.');$('export-scenario').disabled=true; }
+      if(selected==='custom'){selected='maxSharpe';customPoint=null;} updateTarget(); renderAllocation();
+    } catch(error) { allocation=null; const message='입력 오류 · '+failMessage(error); showError('model-error',message);showError('cma-error',message);$('allocation-results').hidden=true;$('portfolio-metrics').innerHTML=metric('유효한 가정 필요','—','','CMA에서 입력값을 확인하십시오.');$('export-scenario').disabled=true; $('target-note').textContent=''; showError('target-error',''); }
     renderOverviewPortfolios();
+  }
+  function updateTarget() {
+    if(!allocation)return;
+    allocation.target=null;allocation.targetError='';
+    try { validateTarget(state);allocation.target=A.selectTarget(allocation.result,state.target,state.targetMode); }
+    catch(error){allocation.targetError=failMessage(error);}
   }
   function chosen() { return selected==='custom'?customPoint:allocation[selected]; }
   function renderAllocation() {
-    if(!allocation)return;const p=chosen(),delta=p.return-allocation.current.return;
-    $('portfolio-metrics').innerHTML=metric('기대수익률',number(p.return*100),'%',LABELS[selected]+' · 현재 대비 '+signed(delta*100)+'%p',true)+metric('예상 변동성',number(p.vol*100),'%','연율 · CMA 공분산 기준')+metric('샤프비율',(p.sharpeDefined===false?'—':number(p.sharpe)),'','무위험수익률 '+pct(state.rf))+metric('투자 자산군',String(state.assets.length),'','현재 / SAA / 최적안 비교');
-    $('portfolio-choices').innerHTML=['current','saa','minVol','maxSharpe','target'].map(key=>'<button class="portfolio-choice'+(selected===key?' active':'')+'" data-portfolio="'+key+'" aria-pressed="'+(selected===key)+'"><span class="choice-radio"></span><span><span class="choice-name">'+LABELS[key]+'</span><span class="choice-caption" style="display:block">'+CAPTIONS[key]+'</span></span><span class="choice-value">'+pct(allocation[key].return)+'</span></button>').join('');
-    $('selected-summary').innerHTML='<div class="summary-row"><span>선택안</span><strong>'+LABELS[selected]+'</strong></div><div class="summary-row"><span>수익률 가정 이동</span><strong>'+signed(state.shock*100)+'%p</strong></div><div class="summary-row"><span>비중 합계</span><strong>'+pct(p.weights.reduce((a,b)=>a+b,0))+'</strong></div>';
-    const min=allocation.result.frontier[0].return,max=allocation.result.frontier[allocation.result.frontier.length-1].return;
-    $('target-note').textContent='목표 '+pct(state.target)+' · 근접 조합 '+pct(allocation.target.return)+' · 범위 '+pct(min)+'–'+pct(max)+(state.target<min||state.target>max?' · 범위 밖':'');
+    if(!allocation)return;const p=chosen(),delta=p?p.return-allocation.current.return:NaN;
+    $('target-controls').hidden=selected!=='target';
+    showError('target-error',allocation.targetError);
+    $('target-return').setAttribute('aria-invalid',String(!!allocation.targetError));
+    const range=allocation.result.returnRange;
+    $('target-note').textContent='목표 '+targetConstraint()+' · 산출 '+pct(allocation.target?.return)+' · 가능 범위 '+pct(range.min)+'–'+pct(range.max);
+    $('allocation-csv').disabled=!p;
+    $('portfolio-metrics').innerHTML=metric('기대수익률',number(p?.return*100),'%',p?LABELS[selected]+' · 현재 대비 '+signed(delta*100)+'%p':'Target Return · 미산출',true)+metric('예상 변동성',number(p?.vol*100),'%','연율 · CMA 공분산 기준')+metric('샤프비율',(!p||p.sharpeDefined===false?'—':number(p.sharpe)),'','무위험수익률 '+pct(state.rf))+metric('투자 자산군',String(state.assets.length),'','현재 / SAA / 최적안 비교');
+    $('portfolio-choices').innerHTML=['current','saa','minVol','maxSharpe','target'].map(key=>'<button class="portfolio-choice'+(selected===key?' active':'')+'" data-portfolio="'+key+'" aria-pressed="'+(selected===key)+'"><span class="choice-radio"></span><span><span class="choice-name">'+LABELS[key]+'</span><span class="choice-caption" style="display:block">'+CAPTIONS[key]+'</span></span><span class="choice-value">'+pct(allocation[key]?.return)+'</span></button>').join('');
+    $('selected-summary').innerHTML='<div class="summary-row"><span>선택안</span><strong>'+LABELS[selected]+'</strong></div><div class="summary-row"><span>수익률 가정 이동</span><strong>'+signed(state.shock*100)+'%p</strong></div><div class="summary-row"><span>비중 합계</span><strong>'+(p?pct(p.weights.reduce((a,b)=>a+b,0)):'—')+'</strong></div>';
+    if(!p){
+      $('weights-table').innerHTML='<div class="empty-chart">Target Return · 미산출</div>';$('risk-bars').innerHTML='';
+      drawFrontier(null);renderOverviewPortfolios();return;
+    }
     $('weights-table').innerHTML='<table><thead><tr><th>자산군</th><th>현재</th><th>SAA</th><th>'+LABELS[selected]+'</th><th>현재 대비</th></tr></thead><tbody>'+names().map((n,i)=>{const delta=(p.weights[i]-state.assets[i].current)*100,rounded=Math.sign(delta)*Math.round(Math.abs(delta))||0;return '<tr><td><span class="asset-dot" style="background:'+color(i)+'"></span>'+esc(n)+'</td><td>'+number(state.assets[i].current*100)+'%</td><td>'+number(state.assets[i].saa*100)+'%</td><td class="selected-col">'+number(p.weights[i]*100)+'%</td><td class="'+signClass(rounded)+'">'+(rounded>0?'+':'')+number(rounded,0)+'%p</td></tr>';}).join('')+'</tbody></table>';
     const riskMax=Math.max(...p.contributions.map(Math.abs),.000001);
     $('risk-bars').innerHTML=names().map((n,i)=>'<div class="risk-row"><span>'+esc(n)+'</span><div class="risk-track"><div class="risk-fill" style="width:'+Math.min(100,Math.abs(p.contributions[i])/riskMax*100)+'%;background:'+(p.contributions[i]<0?'#d99191':color(i))+'"></div></div><span class="risk-value '+signClass(p.contributions[i])+'">'+number(p.contributions[i]*100)+'</span></div>').join('');
@@ -160,7 +179,7 @@
   function linePath(points,x,y) { return points.map((p,i)=>(i?'L':'M')+x(p).toFixed(2)+','+y(p).toFixed(2)).join(' '); }
   function drawFrontier(p) {
     const W=700,H=315,L=58,R=30,T=27,B=44,front=allocation.result.frontier;
-    const all=[...front,allocation.current,allocation.saa,p],xs=all.map(v=>v.vol*100),ys=all.map(v=>v.return*100);
+    const all=[...front,allocation.current,allocation.saa,p].filter(Boolean),xs=all.map(v=>v.vol*100),ys=all.map(v=>v.return*100);
     let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);const xp=Math.max((xmax-xmin)*.13,.5),yp=Math.max((ymax-ymin)*.16,.5);xmin=Math.max(0,xmin-xp);xmax+=xp;ymin-=yp;ymax+=yp;
     const x=v=>L+(v.vol*100-xmin)/(xmax-xmin)*(W-L-R),y=v=>H-B-(v.return*100-ymin)/(ymax-ymin)*(H-T-B);
     let svg=svgStart(W,H,'연간 변동성 대비 기대수익률 효율적 경계선. 샤프비율별 색상.').replace('role="img"','role="group"');
@@ -170,7 +189,8 @@
     $('sharpe-range').textContent=number(smin)+'–'+number(smax);
     front.forEach((v,i)=>{let t=(v.sharpe-smin)/(smax-smin||1);if(!Number.isFinite(t))t=.5;const color='rgb('+[Math.round(77+146*t),Math.round(133+58*t),Math.round(150-35*t)].join(',')+')';svg+='<circle class="point-button" data-frontier="'+i+'" tabindex="0" role="button" aria-label="조합 '+(i+1)+', 수익률 '+pct(v.return)+', 변동성 '+pct(v.vol)+'" cx="'+x(v)+'" cy="'+y(v)+'" r="4.2" fill="'+color+'"><title>수익률 '+pct(v.return)+' · 변동성 '+pct(v.vol)+' · Sharpe '+(v.sharpeDefined===false?'—':number(v.sharpe))+'</title></circle>';});
     [['현재',allocation.current,'#c4ced9'],['SAA',allocation.saa,'#759ee9']].forEach(([label,v,color])=>{svg+='<circle cx="'+x(v)+'" cy="'+y(v)+'" r="5.5" fill="'+color+'" stroke="#111b29" stroke-width="2"/><text x="'+(x(v)+10)+'" y="'+(y(v)+4)+'" style="fill:'+color+'">'+label+'</text>';});
-    svg+='<circle cx="'+x(p)+'" cy="'+y(p)+'" r="11" fill="#e8bf7118" stroke="#e8bf7155"/><circle cx="'+x(p)+'" cy="'+y(p)+'" r="5" fill="#e8bf71" stroke="#111b29" stroke-width="1.5"/><text x="'+(x(p)-10)+'" y="'+(y(p)-13)+'" text-anchor="end" style="fill:#e8bf71">'+LABELS[selected]+'</text></svg>';
+    if(p)svg+='<circle cx="'+x(p)+'" cy="'+y(p)+'" r="11" fill="#e8bf7118" stroke="#e8bf7155"/><circle cx="'+x(p)+'" cy="'+y(p)+'" r="5" fill="#e8bf71" stroke="#111b29" stroke-width="1.5"/><text x="'+(x(p)-10)+'" y="'+(y(p)-13)+'" text-anchor="end" style="fill:#e8bf71">'+LABELS[selected]+'</text>';
+    svg+='</svg>';
     $('frontier-chart').innerHTML=svg;
   }
   function sparkline(series) { const pts=(series.spark||[]).map(p=>({x:p[0],value:p[1]})).filter(p=>Number.isFinite(p.value));if(pts.length<2)return '';const min=Math.min(...pts.map(p=>p.value)),max=Math.max(...pts.map(p=>p.value));return '<svg class="sparkline" viewBox="0 0 80 26" aria-hidden="true"><path d="'+linePath(pts,p=>2+(p.x-pts[0].x)/(pts[pts.length-1].x-pts[0].x||1)*76,p=>23-(p.value-min)/(max-min||1)*20)+'" fill="none" stroke="#46cfbc" stroke-width="1.5"/></svg>'; }
@@ -283,6 +303,7 @@
     next.corr=raw.corr.map(row=>{if(!Array.isArray(row)||row.length!==raw.assets.length)throw new Error('상관행렬 크기를 확인하십시오.');return row.map(v=>requireNumber(v,'상관계수',-1,1));});
     if(raw.version===1){next.assets.push(liquidAsset);next.corr.forEach(row=>row.push(0));next.corr.push([...Array(7).fill(0),1]);}
     next.rf=requireNumber(raw.rf,'무위험수익률',-.2,.5);next.target=requireNumber(raw.target,'목표수익률',-1,1);next.shock=requireNumber(raw.shock,'가정 이동',-.5,.5);
+    next.targetMode=raw.targetMode===undefined?'minimum':raw.targetMode;
     if(raw.hedge){if(!['USD','JPY','EUR','AUD'].includes(raw.hedge.currency))throw new Error('지원하지 않는 통화입니다.');next.hedge.currency=raw.hedge.currency;['localReturn','fxReturn','premium','assetVol','fxVol','correlation','hedgeRatio'].forEach(k=>next.hedge[k]=requireNumber(raw.hedge[k],'환헤지 '+k,['assetVol','fxVol','hedgeRatio'].includes(k)?0:-1,1));next.hedge.confirmed=raw.hedge.confirmed===true;F.scenario(next.hedge);}
     if(raw.fx){if(!['random-walk','historical','scenario'].includes(raw.fx.method)||![3,6,12,24].includes(raw.fx.months)||![36,60,120].includes(raw.fx.lookback))throw new Error('전망 모형·기간을 확인하십시오.');next.fx={method:raw.fx.method,months:raw.fx.months,lookback:raw.fx.lookback,annualDrift:F.validateForecastOptions(raw.fx).annualDrift,band68:raw.fx.band68!==false,band95:raw.fx.band95!==false};}
     if(raw.models){next.models.hedgeCost=requireNumber(raw.models.hedgeCost,'연간 헤지 비용',0,1);next.models.riskAversion=requireNumber(raw.models.riskAversion,'위험회피도',.01,1000);['domesticRate','foreignRate'].forEach(k=>next.models[k]=raw.models[k]===null?null:requireNumber(raw.models[k],'CIP 금리',-.99,1));}
@@ -299,11 +320,16 @@
     window.addEventListener('hashchange',()=>activate(location.hash.slice(1)));
     $('cma-table').addEventListener('change',e=>{if(e.target.dataset.asset!==undefined){const a=state.assets[Number(e.target.dataset.asset)],key=e.target.dataset.field;a[key]=fieldNumber(e.target);if(['mu','vol'].includes(key)&&a.provenance?.method==='history')a.provenance.method='mixed';recalculate();alternativeUI.refresh();}});
     $('correlation-table').addEventListener('change',e=>{const t=e.target;if(t.dataset.corrI!==undefined){const i=Number(t.dataset.corrI),j=Number(t.dataset.corrJ),v=fieldNumber(t,1);state.corr[i][j]=v;state.corr[j][i]=v;[i,j].forEach((k,index)=>{const a=state.assets[k];if(a.provenance?.method==='history')a.provenance.method='mixed';if(a.provenance?.compared)a.provenance.compared=a.provenance.compared.filter(c=>c.id!==state.assets[index===0?j:i].id);});$('corr-'+j+'-'+i).textContent=number(v);recalculate();alternativeUI.refresh();}});
-    [['risk-free','rf'],['target-return','target'],['mu-shock','shock']].forEach(([id,key])=>$(id).addEventListener('change',()=>{state[key]=fieldNumber($(id));recalculate();}));
+    [['risk-free','rf'],['mu-shock','shock']].forEach(([id,key])=>$(id).addEventListener('change',()=>{state[key]=fieldNumber($(id));recalculate();}));
+    function changeTarget() {
+      state.target=fieldNumber($('target-return'));state.targetMode=$('target-mode').value;selected='target';customPoint=null;
+      if(allocation){updateTarget();renderAllocation();}else recalculate();
+    }
+    $('target-return').addEventListener('input',changeTarget);$('target-return').addEventListener('change',changeTarget);$('target-mode').addEventListener('change',changeTarget);
     $('portfolio-choices').addEventListener('click',e=>{const b=e.target.closest('[data-portfolio]');if(b&&allocation){selected=b.dataset.portfolio;renderAllocation();}});
     const selectFront=e=>{const point=e.target.closest('[data-frontier]');if(point&&allocation){customPoint=allocation.result.frontier[Number(point.dataset.frontier)];selected='custom';renderAllocation();}};
     $('frontier-chart').addEventListener('click',selectFront);$('frontier-chart').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectFront(e);}});
-    $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...names().map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
+    $('allocation-csv').addEventListener('click',()=>{if(!allocation)return;const p=chosen();if(!p)return;download('collabo-allocation.csv',csv([['asset','current_weight','saa_weight','selected_weight','change_weight','risk_contribution_annual','assumption_mu_annual','assumption_vol_annual'],...names().map((n,i)=>[n,state.assets[i].current,state.assets[i].saa,p.weights[i],p.weights[i]-state.assets[i].current,p.contributions[i],allocation.assets[i].mu,allocation.assets[i].vol])]),'text/csv;charset=utf-8');});
     $('save-scenario').addEventListener('click',()=>{try{const validated=importState(state);localStorage.setItem(STORAGE_KEY,JSON.stringify({...validated,savedAt:new Date().toISOString()}));notify('현재 가정을 이 브라우저에 저장했습니다.');}catch(e){notify('저장 실패: '+failMessage(e));}});
     $('load-scenario').addEventListener('click',()=>{try{const value=localStorage.getItem(STORAGE_KEY)??localStorage.getItem(LEGACY_STORAGE_KEY);if(!value)throw new Error('저장된 가정이 없습니다.');applyState(importState(JSON.parse(value)));notify('저장된 가정을 불러왔습니다.');}catch(e){notify('불러오기 실패: '+failMessage(e));}});
     $('export-scenario').addEventListener('click',()=>{try{const validated=importState(state);download('collabo-scenario-v2.json',JSON.stringify({...validated,savedAt:new Date().toISOString()},null,2),'application/json');}catch(e){notify(failMessage(e));}});
@@ -338,7 +364,8 @@
     if(!allocation){$('overview-portfolios').innerHTML='';return;}
     $('overview-portfolios').innerHTML=['current','saa','minVol','maxSharpe','target'].map(key=>{
       const p=allocation[key];
-      return '<article class="summary-card'+(key===selected?' accent':'')+'"><div class="summary-card-head"><h3>'+LABELS[key]+'</h3><button class="button small" data-summary-portfolio="'+key+'">상세 ↗</button></div><div class="summary-stats">'+stat('기대수익률',pct(p.return))+stat('변동성',pct(p.vol))+stat('Sharpe',p.sharpeDefined===false?'—':number(p.sharpe))+'</div><div class="summary-weights">'+names().map((name,i)=>'<div class="summary-weight"><span>'+esc(name)+'</span><div class="summary-weight-track"><span class="summary-weight-fill" style="width:'+(p.weights[i]*100).toFixed(2)+'%;background:'+color(i)+'"></span></div><strong>'+number(p.weights[i]*100)+'%</strong></div>').join('')+'</div></article>';
+      if(!p)return '<article class="summary-card unavailable"><div class="summary-card-head"><h3>'+LABELS[key]+'</h3><button class="button small" data-summary-portfolio="'+key+'">상세 ↗</button></div><div class="card-meta">목표 '+targetConstraint()+'</div><div class="summary-stats">'+stat('기대수익률','—')+stat('변동성','—')+stat('Sharpe','—')+'</div><div class="model-status">'+esc(allocation.targetError)+'</div></article>';
+      return '<article class="summary-card'+(key===selected?' accent':'')+'"><div class="summary-card-head"><h3>'+LABELS[key]+'</h3><button class="button small" data-summary-portfolio="'+key+'">상세 ↗</button></div>'+(key==='target'?'<div class="card-meta">목표 '+targetConstraint()+'</div>':'')+'<div class="summary-stats">'+stat('기대수익률',pct(p.return))+stat('변동성',pct(p.vol))+stat('Sharpe',p.sharpeDefined===false?'—':number(p.sharpe))+'</div><div class="summary-weights">'+names().map((name,i)=>'<div class="summary-weight"><span>'+esc(name)+'</span><div class="summary-weight-track"><span class="summary-weight-fill" style="width:'+(p.weights[i]*100).toFixed(2)+'%;background:'+color(i)+'"></span></div><strong>'+number(p.weights[i]*100)+'%</strong></div>').join('')+'</div></article>';
     }).join('');
   }
   function quarterRows(result){return result?result.rows.filter(row=>[3,6,9,12].includes(row.horizon)):[];}
