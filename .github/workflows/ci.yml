@@ -35,7 +35,9 @@ jobs:
           node --check template/platform/models.js
           node --check template/platform/alternative-ui.js
           node --check template/platform/reference.js
-          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs tests/test_reference.cjs tests/test_alternative.cjs tests/test_workbook.cjs
+          node --check template/platform/correlation.js
+          node --check template/platform/correlation-ui.js
+          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs tests/test_reference.cjs tests/test_correlation.cjs tests/test_alternative.cjs tests/test_workbook.cjs
 
       - name: Check platform interactions with a DOM emulator
         run: |
