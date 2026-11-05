@@ -22,6 +22,8 @@
 <script src="platform/chart-export.js" defer></script>
 <script src="platform/correlation.js" defer></script>
 <script src="platform/correlation-ui.js" defer></script>
+<script src="platform/simulation.js" defer></script>
+<script src="platform/simulation-ui.js" defer></script>
 <script src="platform/app.js" defer></script>
 </head>
 <body>
@@ -164,6 +166,44 @@
         <div id="reference-metrics" class="metric-grid three" aria-live="polite"></div>
         <article class="panel"><div class="panel-head"><h2>구성 자산</h2><span id="reference-period" class="subtle-tag"></span></div><div id="reference-assets" class="table-scroll"></div><div id="reference-source" class="reference-source"></div></article>
       </div>
+      <section id="correlation-simulation" class="simulation-section" aria-labelledby="simulation-title">
+        <article class="panel simulation-controls-panel">
+          <div class="panel-head"><h2 id="simulation-title">Correlation Simulation</h2><button id="simulation-reset" class="button small" type="button" disabled>초기값</button></div>
+          <div id="simulation-quality" class="simulation-quality" role="status">KBPMABIN 원자료 검증 대기 · 잠정 시뮬레이션</div>
+          <div class="simulation-controls">
+            <label>추정 시작<input id="simulation-start" type="date" disabled></label>
+            <label>추정 종료<input id="simulation-end" type="date" disabled></label>
+            <label>성과 종료<input id="simulation-performance-end" type="date" disabled></label>
+            <label>환율 기준<select id="simulation-basis" disabled><option value="local">환율 미반영 · 지수 수익률</option><option value="krw">원화 환노출</option></select></label>
+            <label>추정 방식<select id="simulation-mode" disabled><option value="correlation">ρ 단독 · μ·σ 월간 고정</option><option value="full">μ·σ·ρ 주기별 재추정</option></select></label>
+            <label>최적화<select id="simulation-objective" disabled><option value="minVol">MinVol</option><option value="maxSharpe">MaxSharpe</option></select></label>
+            <label>무위험수익률 (% / 연)<input id="simulation-rf" type="number" min="-20" max="100" step="0.1" value="0" disabled></label>
+            <label>성과 구간<select id="simulation-evaluation" disabled><option value="holdout">추정 이후 · 고정비중</option><option value="inSample">표본내 재구성</option></select></label>
+          </div>
+          <div class="simulation-rho-control"><label for="simulation-rho">사용자 ρ</label><span>−1.00</span><input id="simulation-rho" type="range" min="-1" max="1" step="0.01" value="0" disabled><span>+1.00</span><input id="simulation-rho-value" type="number" min="-1" max="1" step="0.01" value="0" aria-label="사용자 상관계수" disabled></div>
+          <div class="simulation-context"><span>ACWI_TR · 국내채권 KBPMABIN</span><span>비중 0–100% · 합계 100%</span><span id="simulation-source"></span></div>
+          <div id="simulation-error" class="notice error compact" role="alert" hidden></div>
+        </article>
+        <div id="simulation-results" hidden>
+          <article class="panel">
+            <div id="simulation-table-head" class="panel-head"><h3>상관계수 · 최적 비중</h3><span id="simulation-method" class="subtle-tag"></span></div>
+            <div id="simulation-table" class="table-scroll" aria-live="polite"></div>
+          </article>
+          <article class="panel">
+            <div id="simulation-frontier-head" class="panel-head"><h3>Efficient Frontier</h3><span class="subtle-tag">◆ 최적 비중 · 연율 (%)</span></div>
+            <div id="simulation-baseline" class="simulation-context"></div>
+            <div id="simulation-frontier-legend" class="reference-legend simulation-legend"></div>
+            <div id="simulation-frontier" class="chart simulation-chart"></div>
+          </article>
+          <article class="panel">
+            <div id="simulation-performance-head" class="panel-head"><h3>Performance Time series</h3><span id="simulation-performance-period" class="subtle-tag"></span></div>
+            <div class="simulation-context"><span id="simulation-performance-mode"></span><span>시작 100 · 월별 리밸런싱 · 거래비용 제외</span></div>
+            <div id="simulation-performance-legend" class="reference-legend simulation-legend"></div>
+            <div id="simulation-performance" class="chart simulation-chart"></div>
+            <div id="simulation-performance-stats" class="table-scroll"></div>
+          </article>
+        </div>
+      </section>
     </div>
   </section>
   <section id="view-fx" class="view" aria-labelledby="fx-title" hidden>
