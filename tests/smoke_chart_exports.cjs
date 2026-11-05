@@ -21,7 +21,7 @@ function near(actual,expected,label){assert.ok(Math.abs(Number(actual)-expected)
 (async()=>{
  await wait();
  const correlationIds=['correlation-series-chart','correlation-rolling-chart'];
- const ids=['overview-portfolios','frontier-chart','risk-bars','hedge-chart','forecast-chart','model-a-chart','reference-chart','reference-allocation',...correlationIds,...Array.from({length:4},(_,i)=>'market-spark-'+i)];
+ const ids=['overview-portfolios','frontier-chart','risk-bars','hedge-chart','forecast-chart','model-a-chart','reference-chart','reference-allocation',...correlationIds,'simulation-table','simulation-frontier','simulation-performance',...Array.from({length:4},(_,i)=>'market-spark-'+i)];
  assert.equal(document.querySelectorAll('[data-chart-csv]').length,ids.length);
  for(const id of ids)assert.ok((await csv(id)).rows.length>0,id);
  // Historical pair selection is independent of editable CMA assumptions.

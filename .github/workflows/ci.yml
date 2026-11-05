@@ -37,7 +37,9 @@ jobs:
           node --check template/platform/reference.js
           node --check template/platform/correlation.js
           node --check template/platform/correlation-ui.js
-          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs tests/test_reference.cjs tests/test_correlation.cjs tests/test_alternative.cjs tests/test_workbook.cjs
+          node --check template/platform/simulation.js
+          node --check template/platform/simulation-ui.js
+          node --test tests/test_analytics.cjs tests/test_fx.cjs tests/test_models.cjs tests/test_reference.cjs tests/test_correlation.cjs tests/test_simulation.cjs tests/test_alternative.cjs tests/test_workbook.cjs
 
       - name: Check platform interactions with a DOM emulator
         run: |
@@ -45,6 +47,7 @@ jobs:
           NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_platform.cjs
           NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_alternative.cjs
           NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_chart_exports.cjs
+          NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_simulation.cjs
 
       - name: Run tests
         run: python -m pytest -q
