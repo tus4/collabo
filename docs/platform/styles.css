@@ -56,3 +56,5 @@ table{font-size:12px}th{font-size:11px}.editable-table input,.correlation-table 
 @media(max-width:1000px){.monitor-model-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.monitor-summary{margin:18px 0}.monitor-summary-head{gap:11px}.monitor-model-card{padding:15px}.monitor-model-grid,.monitor-model-grid.currency{gap:10px}.monitor-summary-controls{gap:9px}.monitor-summary-controls label{font-size:11px}.model-card-metrics .summary-stat strong{font-size:21px}}
 @media(max-width:540px){.monitor-model-grid,.monitor-model-grid.currency{grid-template-columns:1fr}.monitor-summary-controls{width:100%;justify-content:space-between}.monitor-summary-head h2{font-size:14px}.model-card-metrics{gap:12px 16px}.model-card-top{flex-wrap:nowrap}}
+
+.chart-csv-button{margin-left:auto}.market-tile .chart-csv-button{grid-column:2;grid-row:1;padding:3px 6px;min-height:24px;font-size:10px}.covariance-table td{font-variant-numeric:tabular-nums}

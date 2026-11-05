@@ -31,6 +31,7 @@ jobs:
       - name: Check platform JavaScript and numerical invariants
         run: |
           node --check template/platform/app.js
+          node --check template/platform/chart-export.js
           node --check template/platform/models.js
           node --check template/platform/alternative-ui.js
           node --check template/platform/reference.js
@@ -41,6 +42,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/collabo-dom" --no-audit --no-fund --ignore-scripts linkedom@0.18.13
           NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_platform.cjs
           NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_alternative.cjs
+          NODE_PATH="$RUNNER_TEMP/collabo-dom/node_modules" node tests/smoke_chart_exports.cjs
 
       - name: Run tests
         run: python -m pytest -q
