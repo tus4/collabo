@@ -108,8 +108,9 @@ test('FX translation includes its cross term and uses shared observations', () =
 
 test('correlation-only mode fixes monthly means/vols and full mode reestimates each frequency', () => {
   const fixed = S.calculate(sample, options), full = S.calculate(sample, {...options, mode: 'full'});
-  assert.deepEqual(fixed.scenarios.map(row => row.id), ['daily', 'weekly', 'monthly', 'custom']);
-  for (let i = 0; i < 4; i++) {
+  assert.deepEqual(fixed.scenarios.map(row => row.id), ['daily', 'weekly', 'monthly', 'custom-1', 'custom-2', 'custom-3', 'custom-4', 'custom-5']);
+  assert.deepEqual(fixed.customRhos, [-1, -0.5, 0, 0.5, 1]);
+  for (let i = 0; i < fixed.scenarios.length; i++) {
     assert.equal(fixed.scenarios[i].error, null);
     assert.deepEqual(fixed.scenarios[i].means, fixed.baseline.means);
     assert.deepEqual(fixed.scenarios[i].vols, fixed.baseline.vols);
@@ -133,11 +134,16 @@ test('holdout uses only post-estimation month-end anchors and is immune to futur
   assert.notDeepEqual(future.performance.points, result.performance.points);
 });
 
-test('performance follows identical actual monthly returns, fixed weights, and a 60:40 benchmark', () => {
+test('performance follows identical actual monthly returns and fixed scenario weights without a benchmark', () => {
   const initial = S.calculate(sample, options);
-  const result = S.calculate(sample, {...options, customRho: initial.scenarios[2].rho});
+  const result = S.calculate(sample, {...options, customRhos: [initial.scenarios[2].rho, -1, -0.5, 0, 0.5, 1]});
   const rows = S.resampleReturns(S.prepareLevels(sample).rows, 'monthly', result.performance.startDate, options.performanceEnd);
-  const weights = result.scenarios.map(row => row.optimum.weight).concat(0.6);
+  const weights = result.scenarios.map(row => row.optimum.weight);
+  assert.deepEqual(result.performance.keys, result.scenarios.map(row => row.id));
+  assert.deepEqual(result.performance.labels, result.scenarios.map(row => row.label));
+  assert.equal(result.performance.keys.includes('benchmark'), false);
+  assert.equal(result.performance.labels.includes('60:40'), false);
+  assert.ok(result.performance.points.every(point => point.values.length === weights.length));
   weights.forEach((weight, index) => {
     let wealth = 100;
     rows.forEach((row, i) => {
@@ -152,6 +158,50 @@ test('performance follows identical actual monthly returns, fixed weights, and a
   assert.equal(within.performance.evaluation, 'inSample');
   assert.equal(within.performance.startDate, within.baseline.startDate);
   assert.equal(within.performance.endDate, within.baseline.endDate);
+});
+
+test('custom correlation scenarios keep exact values and link their frontier optimum to performance weights', () => {
+  const customRhos = [-1, -0.75, -0.125, 0, 0.125, 0.75, 1];
+  const result = S.calculate(sample, {...options, customRhos});
+  const custom = result.scenarios.slice(3);
+  assert.equal(custom.length, 7);
+  assert.deepEqual(custom.map(row => row.rho), customRhos);
+  assert.deepEqual(custom.map(row => row.id), customRhos.map((_, i) => 'custom-' + (i + 1)));
+  assert.equal(custom[0].label, 'Custom 1 · ρ = -1.00');
+  assert.equal(custom[3].label, 'Custom 4 · ρ = 0.00');
+  assert.equal(custom.at(-1).label, 'Custom 7 · ρ = +1.00');
+  const [stockVol, bondVol] = result.baseline.vols;
+  near(custom[0].optimum.weight, bondVol / (stockVol + bondVol));
+  near(custom[0].optimum.annualVol, 0);
+  near(custom.at(-1).optimum.weight, Number(stockVol < bondVol));
+  for (const scenario of custom) {
+    assert.deepEqual(scenario.means, result.baseline.means);
+    assert.deepEqual(scenario.vols, result.baseline.vols);
+    assert.deepEqual(scenario.frontier[0], scenario.optimum);
+    near(result.performance.stats.find(row => row.id === scenario.id).weight, scenario.optimum.weight);
+  }
+  // Identical constrained solutions must remain identical, even for different rho.
+  const boundary = S.calculate(sample, {...options, customRhos: [0.99, 1]});
+  near(boundary.scenarios[3].optimum.weight, boundary.scenarios[4].optimum.weight);
+  boundary.performance.points.forEach(point => near(point.values[3], point.values[4]));
+  const legacy = S.calculate(sample, {...options, customRho: 0.25});
+  assert.deepEqual(legacy.customRhos, [0.25]);
+  assert.equal(legacy.scenarios[3].id, 'custom-1');
+  assert.equal(legacy.scenarios.length, 4);
+  const close = S.calculate(sample, {...options, customRhos: [0.121, 0.124]});
+  assert.notEqual(close.scenarios[3].label, close.scenarios[4].label);
+  assert.deepEqual(close.scenarios.slice(3).map(row => row.rho), [0.121, 0.124]);
+  // Results are snapshots, not references to a subsequently edited input array.
+  customRhos[0] = -0.9;
+  assert.equal(result.customRhos[0], -1);
+  assert.equal(result.scenarios[3].rho, -1);
+});
+
+test('invalid, duplicate, empty and oversized custom correlation lists fail explicitly', () => {
+  for (const customRhos of [null, 0, '-1,0,1', [], [-1, 0, 1.01], [-1.01], [NaN], [Infinity], ['0.5'], [0, -0],
+    [0.25, 0.25], [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 1]]) {
+    assert.throws(() => S.calculate(sample, {...options, customRhos}), /Custom/);
+  }
 });
 
 test('insufficient holdout preserves training output and missing performance months do not silently compound', () => {
