@@ -157,8 +157,8 @@
     return Array.from({length: 101}, (_, i) => portfolioPoint(i === 100 ? endpoint : clamp(gmv + (endpoint - gmv) * i / 100), means, vols, rho, rf));
   }
   function performance(prepared, options, scenarios, inSampleRows) {
-    const keys = scenarios.map(scenario => scenario.id).concat('benchmark');
-    const labels = scenarios.map(scenario => scenario.label).concat('60:40');
+    const keys = scenarios.map(scenario => scenario.id);
+    const labels = scenarios.map(scenario => scenario.label);
     const empty = {points: [], keys, labels, stats: keys.map(() => null), evaluation: options.evaluation, startDate: null, endDate: null, error: null};
     let rows;
     if (options.evaluation === 'inSample') rows = inSampleRows;
@@ -174,7 +174,7 @@
     for (let i = 1; i < rows.length; i++) {
       if (rows[i].startDate !== rows[i - 1].date) return {...empty, error: '성과 기간에 공통 월말 결측이 있어 누적성과를 연결할 수 없습니다.'};
     }
-    const weights = scenarios.map(scenario => scenario.optimum?.weight ?? null).concat(0.6);
+    const weights = scenarios.map(scenario => scenario.optimum?.weight ?? null);
     const wealth = weights.map(weight => weight === null ? null : 1);
     const peak = wealth.slice(), maxDrawdown = wealth.map(value => value === null ? null : 0);
     const histories = weights.map(() => []);
@@ -202,11 +202,16 @@
   function calculate(data, options = {}) {
     const basis = options.basis ?? 'local', mode = options.mode ?? 'correlation';
     const objective = options.objective ?? 'minVol', rf = options.rf ?? 0;
-    const customRho = options.customRho ?? 0, evaluation = options.evaluation ?? 'holdout';
+    const customRhos = options.customRhos !== undefined ? options.customRhos :
+      options.customRho !== undefined ? [options.customRho] : [-1, -0.5, 0, 0.5, 1];
+    const evaluation = options.evaluation ?? 'holdout';
     if (!['correlation', 'full'].includes(mode)) fail('시뮬레이션 비교 방식을 확인하십시오.');
     if (!['minVol', 'maxSharpe'].includes(objective)) fail('시뮬레이션 최적화 기준을 확인하십시오.');
     if (!['holdout', 'inSample'].includes(evaluation)) fail('시뮬레이션 성과 구분을 확인하십시오.');
-    if (!finite(rf) || !finite(customRho) || Math.abs(customRho) > 1) fail('시뮬레이션 무위험수익률·상관계수 범위를 확인하십시오.');
+    if (!finite(rf)) fail('시뮬레이션 무위험수익률 범위를 확인하십시오.');
+    if (!Array.isArray(customRhos) || customRhos.length < 1 || customRhos.length > 7 ||
+        !customRhos.every(rho => finite(rho) && Math.abs(rho) <= 1)) fail('Custom 상관계수는 −1–1 범위의 숫자로 1–7개 입력하십시오.');
+    if (new Set(customRhos).size !== customRhos.length) fail('Custom 상관계수는 서로 다른 값으로 입력하십시오.');
     const prepared = prepareLevels(data, basis);
     const requestedStart = dateKey(options.start ?? prepared.rows[0].date);
     const requestedEnd = dateKey(options.end ?? prepared.sourceAsOf);
@@ -231,11 +236,12 @@
         frontier: efficientFrontier(means, vols, observed.rho, rf),
         optimum: optimize(means, vols, observed.rho, objective, rf)};
     });
-    scenarios.push({id: 'custom', label: 'Custom ρ', n: baseline.n, rho: customRho,
+    customRhos.forEach((rho, index) => scenarios.push({id: 'custom-' + (index + 1),
+      label: 'Custom ' + (index + 1) + ' · ρ = ' + (rho > 0 ? '+' : '') + rho.toFixed(2), n: baseline.n, rho,
       startDate: baseline.startDate, endDate: baseline.endDate, means: baseline.means.slice(), vols: baseline.vols.slice(),
-      frontier: efficientFrontier(baseline.means, baseline.vols, customRho, rf),
-      optimum: optimize(baseline.means, baseline.vols, customRho, objective, rf), error: null});
-    return {sourceAsOf: prepared.sourceAsOf, basis, mode, objective, rf,
+      frontier: efficientFrontier(baseline.means, baseline.vols, rho, rf),
+      optimum: optimize(baseline.means, baseline.vols, rho, objective, rf), error: null}));
+    return {sourceAsOf: prepared.sourceAsOf, basis, mode, objective, rf, customRhos: customRhos.slice(),
       training: {startDate: baseline.startDate, endDate: baseline.endDate, requestedStart, requestedEnd}, baseline, scenarios,
       performance: performance(prepared, {end, performanceEnd, evaluation}, scenarios, monthlyRows)};
   }

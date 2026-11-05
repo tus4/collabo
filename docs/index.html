@@ -144,6 +144,47 @@
         <div id="correlation-rolling-head" class="panel-head correlation-subhead"><h3>이동상관계수</h3><span id="correlation-rolling-status" class="subtle-tag"></span></div>
         <div id="correlation-rolling-chart" class="chart correlation-chart"></div>
       </article>
+      <section id="correlation-simulation" class="simulation-section" aria-labelledby="simulation-title">
+        <article class="panel simulation-controls-panel">
+          <div class="panel-head"><h2 id="simulation-title">Correlation Simulation</h2><button id="simulation-reset" class="button small" type="button" disabled>초기값</button></div>
+          <div id="simulation-quality" class="simulation-quality" role="status">KBPMABIN 원자료 검증 대기 · 잠정 시뮬레이션</div>
+          <div class="simulation-controls">
+            <label>추정 시작<input id="simulation-start" type="date" disabled></label>
+            <label>추정 종료<input id="simulation-end" type="date" disabled></label>
+            <label>성과 종료<input id="simulation-performance-end" type="date" disabled></label>
+            <label>환율 기준<select id="simulation-basis" disabled><option value="local">환율 미반영 · 지수 수익률</option><option value="krw">원화 환노출</option></select></label>
+            <label>추정 방식<select id="simulation-mode" disabled><option value="correlation">ρ 단독 · μ·σ 월간 고정</option><option value="full">μ·σ·ρ 주기별 재추정</option></select></label>
+            <label>최적화<select id="simulation-objective" disabled><option value="minVol">MinVol</option><option value="maxSharpe">MaxSharpe</option></select></label>
+            <label>무위험수익률 (% / 연)<input id="simulation-rf" type="number" min="-20" max="100" step="0.1" value="0" disabled></label>
+            <label>성과 구간<select id="simulation-evaluation" disabled><option value="holdout">추정 이후 · 고정비중</option><option value="inSample">표본내 재구성</option></select></label>
+          </div>
+          <div class="simulation-custom-head"><h3>Custom 상관계수</h3><span class="subtle-tag">−1.00 ~ +1.00 · 최대 7개</span><button id="simulation-custom-preset" class="button small" type="button" disabled>넓은 범위</button><button id="simulation-custom-add" class="button small" type="button" disabled>+ 상관계수 추가</button></div>
+          <div id="simulation-custom-list" class="simulation-custom-list"></div>
+          <label class="simulation-observed-toggle"><input id="simulation-show-observed" type="checkbox" disabled>일·주·월 관측 상관계수 함께 비교</label>
+          <div class="simulation-context"><span>ACWI_TR · 국내채권 KBPMABIN</span><span>비중 0–100% · 합계 100%</span><span id="simulation-source"></span></div>
+          <div id="simulation-error" class="notice error compact" role="alert" hidden></div>
+        </article>
+        <div id="simulation-results" hidden>
+          <article class="panel">
+            <div id="simulation-table-head" class="panel-head"><h3>상관계수 · 최적 비중</h3><span id="simulation-method" class="subtle-tag"></span></div>
+            <div id="simulation-table" class="table-scroll" aria-live="polite"></div>
+          </article>
+          <article class="panel">
+            <div id="simulation-frontier-head" class="panel-head"><h3>Efficient Frontier</h3><span class="subtle-tag">◆ 최적 비중 · 연율 (%)</span></div>
+            <div id="simulation-baseline" class="simulation-context"></div>
+            <div id="simulation-frontier-legend" class="reference-legend simulation-legend"></div>
+            <div id="simulation-frontier" class="chart simulation-chart"></div>
+          </article>
+          <article class="panel">
+            <div id="simulation-performance-head" class="panel-head"><h3>Performance Time Series</h3><span id="simulation-performance-period" class="subtle-tag"></span></div>
+            <div class="simulation-performance-controls"><label for="simulation-performance-view">성과 표시</label><select id="simulation-performance-view" disabled><option value="index">누적지수 · 시작 100</option><option value="difference">첫 Custom 대비 · pt</option></select><span id="simulation-overlap" role="status"></span></div>
+            <div class="simulation-context"><span id="simulation-performance-mode"></span><span>시작 100 · 월별 리밸런싱 · 거래비용 제외</span></div>
+            <div id="simulation-performance-legend" class="reference-legend simulation-legend"></div>
+            <div id="simulation-performance" class="chart simulation-chart"></div>
+            <div id="simulation-performance-stats" class="table-scroll"></div>
+          </article>
+        </div>
+      </section>
       <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">입력·추정 가정</span></div><div class="table-scroll" id="correlation-table"></div></article>
       <article class="panel"><div class="panel-head"><h2>공분산행렬</h2><span class="subtle-tag">연율 · %²</span></div><div id="covariance-error" class="notice error compact" role="alert" hidden></div><div class="table-scroll" id="covariance-table" aria-live="polite"></div></article>
       <article class="panel"><div class="panel-head"><h2>레퍼런스 상관계수</h2><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
@@ -166,44 +207,6 @@
         <div id="reference-metrics" class="metric-grid three" aria-live="polite"></div>
         <article class="panel"><div class="panel-head"><h2>구성 자산</h2><span id="reference-period" class="subtle-tag"></span></div><div id="reference-assets" class="table-scroll"></div><div id="reference-source" class="reference-source"></div></article>
       </div>
-      <section id="correlation-simulation" class="simulation-section" aria-labelledby="simulation-title">
-        <article class="panel simulation-controls-panel">
-          <div class="panel-head"><h2 id="simulation-title">Correlation Simulation</h2><button id="simulation-reset" class="button small" type="button" disabled>초기값</button></div>
-          <div id="simulation-quality" class="simulation-quality" role="status">KBPMABIN 원자료 검증 대기 · 잠정 시뮬레이션</div>
-          <div class="simulation-controls">
-            <label>추정 시작<input id="simulation-start" type="date" disabled></label>
-            <label>추정 종료<input id="simulation-end" type="date" disabled></label>
-            <label>성과 종료<input id="simulation-performance-end" type="date" disabled></label>
-            <label>환율 기준<select id="simulation-basis" disabled><option value="local">환율 미반영 · 지수 수익률</option><option value="krw">원화 환노출</option></select></label>
-            <label>추정 방식<select id="simulation-mode" disabled><option value="correlation">ρ 단독 · μ·σ 월간 고정</option><option value="full">μ·σ·ρ 주기별 재추정</option></select></label>
-            <label>최적화<select id="simulation-objective" disabled><option value="minVol">MinVol</option><option value="maxSharpe">MaxSharpe</option></select></label>
-            <label>무위험수익률 (% / 연)<input id="simulation-rf" type="number" min="-20" max="100" step="0.1" value="0" disabled></label>
-            <label>성과 구간<select id="simulation-evaluation" disabled><option value="holdout">추정 이후 · 고정비중</option><option value="inSample">표본내 재구성</option></select></label>
-          </div>
-          <div class="simulation-rho-control"><label for="simulation-rho">사용자 ρ</label><span>−1.00</span><input id="simulation-rho" type="range" min="-1" max="1" step="0.01" value="0" disabled><span>+1.00</span><input id="simulation-rho-value" type="number" min="-1" max="1" step="0.01" value="0" aria-label="사용자 상관계수" disabled></div>
-          <div class="simulation-context"><span>ACWI_TR · 국내채권 KBPMABIN</span><span>비중 0–100% · 합계 100%</span><span id="simulation-source"></span></div>
-          <div id="simulation-error" class="notice error compact" role="alert" hidden></div>
-        </article>
-        <div id="simulation-results" hidden>
-          <article class="panel">
-            <div id="simulation-table-head" class="panel-head"><h3>상관계수 · 최적 비중</h3><span id="simulation-method" class="subtle-tag"></span></div>
-            <div id="simulation-table" class="table-scroll" aria-live="polite"></div>
-          </article>
-          <article class="panel">
-            <div id="simulation-frontier-head" class="panel-head"><h3>Efficient Frontier</h3><span class="subtle-tag">◆ 최적 비중 · 연율 (%)</span></div>
-            <div id="simulation-baseline" class="simulation-context"></div>
-            <div id="simulation-frontier-legend" class="reference-legend simulation-legend"></div>
-            <div id="simulation-frontier" class="chart simulation-chart"></div>
-          </article>
-          <article class="panel">
-            <div id="simulation-performance-head" class="panel-head"><h3>Performance Time series</h3><span id="simulation-performance-period" class="subtle-tag"></span></div>
-            <div class="simulation-context"><span id="simulation-performance-mode"></span><span>시작 100 · 월별 리밸런싱 · 거래비용 제외</span></div>
-            <div id="simulation-performance-legend" class="reference-legend simulation-legend"></div>
-            <div id="simulation-performance" class="chart simulation-chart"></div>
-            <div id="simulation-performance-stats" class="table-scroll"></div>
-          </article>
-        </div>
-      </section>
     </div>
   </section>
   <section id="view-fx" class="view" aria-labelledby="fx-title" hidden>
