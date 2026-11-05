@@ -632,7 +632,7 @@
     $('reference-allocation').innerHTML=valid?'<div class="reference-weight-labels"><span>해외주식 <strong>'+pct(w)+'</strong></span><span>국내채권 <strong>'+pct(1-w)+'</strong></span></div><div class="reference-weight-track"><span style="width:'+(w*100)+'%"></span></div>':'';
     chartExport.set('reference-allocation',{label:'레퍼런스 자산 비중',mount:$('reference-allocation'),rows:valid?[['asset','weight_pct'],['해외주식',w*100],['국내채권',(1-w)*100]]:[]});
     chartExport.clear('reference-chart');
-    referenceResult=null;$('reference-csv').disabled=true;$('reference-results').hidden=true;
+    referenceResult=null;$('reference-csv').disabled=true;$('reference-results').hidden=true;$('reference-chart-panel').hidden=true;
     $('reference-metrics').innerHTML='';$('reference-chart').innerHTML='';$('reference-assets').innerHTML='';$('reference-source').textContent='';
     $('reference-correlation').textContent='원자료 확인 중';$('reference-correlation-period').textContent='월수익률 · 관측 상관계수';
     try {
@@ -644,13 +644,13 @@
       const basis=referenceBasisLabel(),sample=result.observations+'개월 · '+basis;
       $('reference-metrics').innerHTML=metric('기대수익률',number(result.expectedReturn*100),'% / 연','과거 월수익률 · 산술 연율',true)+metric('연환산 변동성',number(result.annualVol*100),'%',sample)+metric('연복리 수익률',result.cagr===null?'—':number(result.cagr*100),'%',result.cagr===null?'결측 구간 · 미산출':'CAGR · 과거 실현값');
       $('reference-period').textContent=result.startDate+'–'+result.endDate;
-      const names=['해외주식','국내채권'],indices=['미국_S&P500_TR','한국종합 (KBPMABIN INDEX)'];
+      const names=['해외주식','국내채권'],indices=['ACWI_TR','한국종합 (KBPMABIN INDEX)'];
       $('reference-assets').innerHTML='<table><thead><tr><th>자산</th><th>시계열</th><th>비중</th><th>기대수익률 · 연</th><th>변동성 · 연</th></tr></thead><tbody>'+names.map((name,i)=>'<tr><th>'+name+'</th><td>'+indices[i]+'</td><td>'+pct(result.weights[i])+'</td><td>'+pct(result.assetStats[i].expectedReturn)+'</td><td>'+pct(result.assetStats[i].annualVol)+'</td></tr>').join('')+'</tbody></table>';
       $('reference-source').textContent='data_bb.xlsx · D · 원자료 '+result.sourceAsOf+' · '+basis+' · 월별 리밸런싱'+(result.gapCount?' · 결측 구간 '+result.gapCount+'개':'');
       const labels=[...names,'레퍼런스'];
       $('reference-correlation').innerHTML='<table class="correlation-table reference-matrix"><thead><tr><th scope="col">관측 상관계수</th>'+labels.map((name,i)=>'<th scope="col"'+(i===2?' class="selected-col"':'')+'>'+name+'</th>').join('')+'</tr></thead><tbody>'+labels.map((name,i)=>'<tr><th scope="row"'+(i===2?' class="selected-col"':'')+'>'+name+'</th>'+result.correlation[i].map((v,j)=>'<td'+(i===2||j===2?' class="selected-col"':'')+'>'+number(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
       $('reference-correlation-period').textContent=result.rows[0].date.slice(0,7)+'–'+result.endDate.slice(0,7)+' · '+sample;
-      drawReference(result);showError('reference-error','');$('reference-results').hidden=false;$('reference-csv').disabled=false;
+      drawReference(result);showError('reference-error','');$('reference-results').hidden=false;$('reference-chart-panel').hidden=false;$('reference-csv').disabled=false;
     }catch(error){const message=failMessage(error);showError('reference-error',message);$('reference-correlation').textContent='미산출 · '+message;}
   }
   function drawReference(result) {
@@ -663,7 +663,42 @@
     for(let i=0;i<=4;i++){const v=lo+i*(hi-lo)/4,yy=y(v);svg+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+yy+'" y2="'+yy+'" stroke="#27374a" stroke-dasharray="3 4"/><text x="'+(L-10)+'" y="'+(yy+4)+'" text-anchor="end">'+number(v,0)+'</text>';}
     for(let i=0;i<=5;i++){const k=Math.round(i*(points.length-1)/5),xx=x(k);svg+='<line x1="'+xx+'" x2="'+xx+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#27374a" stroke-dasharray="3 4"/><text x="'+xx+'" y="'+(H-10)+'" text-anchor="middle">'+points[k].date.slice(2,7).replace('-','.')+'</text>';}
     ['#5276b5','#61cdb8','#e8bf71'].forEach((color,j)=>{svg+='<path d="'+points.map((p,i)=>(i?'L':'M')+x(i).toFixed(2)+','+y(p.values[j]).toFixed(2)).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="'+(j===2?2.5:1.5)+'"/>';});
-    $('reference-chart').innerHTML=svg+'</svg>';
+    svg+='<line data-reference-crosshair x1="'+L+'" x2="'+L+'" y1="'+T+'" y2="'+(H-B)+'" stroke="#b9c7d8" stroke-dasharray="3 3" visibility="hidden" pointer-events="none"/>';
+    const chart=$('reference-chart');
+    chart.innerHTML=svg+'</svg><div id="reference-tooltip" class="reference-tooltip" role="status" hidden></div><span id="reference-chart-help" class="sr-only">좌우 방향키로 날짜 이동, Home과 End로 처음과 마지막 날짜 조회, Escape로 닫기</span>';
+    const plot=chart.querySelector('svg'),tooltip=$('reference-tooltip'),crosshair=chart.querySelector('[data-reference-crosshair]');
+    plot.setAttribute('tabindex','0');plot.setAttribute('aria-describedby','reference-chart-help');
+    let selectedIndex=points.length-1;
+    const hide=()=>{tooltip.hidden=true;crosshair.setAttribute('visibility','hidden');};
+    const show=index=>{
+      selectedIndex=Math.max(0,Math.min(points.length-1,index));
+      const point=points[selectedIndex],xx=x(selectedIndex);
+      crosshair.setAttribute('x1',xx);crosshair.setAttribute('x2',xx);crosshair.setAttribute('visibility','visible');
+      tooltip.innerHTML='<strong data-reference-date>'+esc(point.date)+'</strong><div class="reference-tooltip-row reference-tooltip-head"><span></span><span>지수 · 시작 100</span><span>누적수익률</span></div>'+['ACWI_TR','국내채권','레퍼런스'].map((name,i)=>'<div class="reference-tooltip-row"><span><i class="reference-'+['equity','bond','portfolio'][i]+'-color"></i>'+name+'</span><span data-reference-value="'+['equity','bond','reference'][i]+'">'+number(point.values[i])+'</span><span data-reference-return="'+['equity','bond','reference'][i]+'">'+pct(point.values[i]/100-1)+'</span></div>').join('');
+      tooltip.hidden=false;
+      // The SVG can be letterboxed by max-height; map via its screen transform.
+      const matrix=plot.getScreenCTM(),bounds=chart.getBoundingClientRect();
+      const anchor=plot.createSVGPoint();anchor.x=xx;anchor.y=T;
+      const screen=anchor.matrixTransform(matrix);
+      const left=screen.x-bounds.left,top=screen.y-bounds.top+8;
+      tooltip.style.left=Math.max(0,Math.min(bounds.width-tooltip.offsetWidth,left+(left>bounds.width/2?-tooltip.offsetWidth-12:12)))+'px';
+      tooltip.style.top=Math.max(0,top)+'px';
+    };
+    const inspect=event=>{
+      const matrix=plot.getScreenCTM();if(!matrix)return;
+      const cursor=plot.createSVGPoint();cursor.x=event.clientX;cursor.y=event.clientY;
+      const local=cursor.matrixTransform(matrix.inverse());
+      if(local.x<L||local.x>W-R||local.y<T||local.y>H-B){hide();return;}
+      show(Math.round((local.x-L)/(W-L-R)*(points.length-1)));
+    };
+    plot.addEventListener('pointermove',inspect);plot.addEventListener('pointerdown',inspect);
+    plot.addEventListener('pointerleave',hide);plot.addEventListener('pointercancel',hide);plot.addEventListener('blur',hide);
+    plot.addEventListener('focus',()=>show(selectedIndex));
+    plot.addEventListener('keydown',event=>{
+      if(event.key==='Escape'){event.preventDefault();hide();return;}
+      const next={ArrowLeft:selectedIndex-1,ArrowRight:selectedIndex+1,Home:0,End:points.length-1}[event.key];
+      if(next===undefined)return;event.preventDefault();show(next);
+    });
     chartExport.set('reference-chart',{label:'레퍼런스 누적 성과',filename:'collabo-reference-chart-'+result.endDate+'.csv',rows:[['source_asof','basis','equity_weight_pct','bond_weight_pct','date','equity_index_100','bond_index_100','reference_index_100'],...points.map(point=>[result.sourceAsOf,result.basis,result.weights[0]*100,result.weights[1]*100,point.date,...point.values])]});
   }
   async function loadReference() {

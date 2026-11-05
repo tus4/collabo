@@ -23,7 +23,7 @@ from .common import BuildError
 
 
 SERIES = {
-    "equity": ("미국_S&P500_TR", "SPX INDEX", "TOT_RETURN_INDEX_GROSS_DVDS", "USD"),
+    "equity": ("ACWI_TR", "ACWI INDEX", "TOT_RETURN_INDEX_GROSS_DVDS", "USD"),
     "bond": ("한국종합", "KBPMABIN INDEX", "TOT_RETURN_INDEX_GROSS_DVDS", "KRW"),
     "fx": ("달러원", "USDKRW CURNCY", "PX_LAST", "KRW/USD"),
 }
