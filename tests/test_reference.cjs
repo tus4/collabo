@@ -132,21 +132,23 @@ test('invalid weights, options, data and insufficient samples fail explicitly', 
 });
 
 test('published source matches independently calculated Python statistics', () => {
-  // Snapshot baseline: pandas sample statistics from the original daily workbook.
+  // Snapshot baseline: direct OOXML daily cells + pandas sample statistics,
+  // independent of the production openpyxl exporter and JS calculator.
   // Refresh this baseline with an independent calculation when this source changes.
   const data = require('../template/platform/reference-data.json');
-  assert.equal(data.source.sha256, 'fc36f8a51fc0fdc7a169e0179bbb2fa58d2908815fd3ef4f56db2f370342b2c6');
+  assert.equal(data.source.sha256, 'a8bb9c01041baa4da150063895e447406c02d6caaecff89e049e3b9823b8a44e');
+  assert.deepEqual(data.source.series.equity, {label:'ACWI_TR', ticker:'ACWI INDEX', field:'TOT_RETURN_INDEX_GROSS_DVDS', currency:'USD', column:'GA'});
   for (const [basis, mu, vol] of [
-    ['local', 0.09763901165387019, 0.09719868745078467],
-    ['krw', 0.10950547883636581, 0.08907963985127373]
+    ['local', 0.08358640395575156, 0.09863176411227352],
+    ['krw', 0.09160425059353727, 0.08499064661051356]
   ]) {
     const result = R.calculate(data, {basis});
     near(result.expectedReturn, mu);
     near(result.annualVol, vol);
     assert.equal(result.observations, 120);
     assert.equal(result.gapCount, 0);
-    assert.equal(result.startDate, '2016-09-30');
-    assert.equal(result.endDate, '2026-09-30');
-    assert.equal(result.sourceAsOf, '2026-10-28');
+    assert.equal(result.startDate, '2016-10-31');
+    assert.equal(result.endDate, '2026-10-30');
+    assert.equal(result.sourceAsOf, '2026-11-05');
   }
 });

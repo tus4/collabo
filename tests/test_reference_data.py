@@ -14,6 +14,11 @@ def headers():
 
 def test_exact_header_identity_rejects_price_index_proxy_and_ambiguity():
     assert match_columns(headers()) == {"equity": 1, "bond": 2, "fx": 3}
+    old_equity = headers()
+    old_equity[0][1] = "미국_S&P500_TR"
+    old_equity[1][1] = "SPX INDEX"
+    with pytest.raises(BuildError, match="ACWI_TR / ACWI INDEX"):
+        match_columns(old_equity)
     wrong = headers()
     wrong[2][1] = "PX_LAST"
     with pytest.raises(BuildError, match="exactly one"):
