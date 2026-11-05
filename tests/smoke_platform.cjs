@@ -737,6 +737,6 @@ function dragTab(from,to,commit=true) {
  assert.equal(customRisk.filter(row=>row.selected==='true').length,1);
  const exportedCustom=customRisk.find(row=>row.portfolio==='custom');
  assert.equal(performanceValue('marketVaR'),(Number(exportedCustom.market_var_loss_fraction)*100).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%','custom risk CSV/display mismatch');
- assert.ok(fetches.every(url=>url.startsWith('data/')||url==='platform/reference-data.json'),'unexpected external fetch');
+ assert.ok(fetches.every(url=>url.startsWith('data/')||['platform/reference-data.json','platform/correlation-data.json'].includes(url)),'unexpected external fetch');
  console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,cmaCorrelationTab:true,covarianceUnitsAndValidation:true,referencePortfolio:true,legacyScenarioMigration:true,targetReturnConstraints:true,targetInfeasibilityRecovery:true,targetScenarioPersistence:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

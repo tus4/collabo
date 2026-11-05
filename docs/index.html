@@ -20,6 +20,8 @@
 <script src="platform/alternative-ui.js" defer></script>
 <script src="platform/reference.js" defer></script>
 <script src="platform/chart-export.js" defer></script>
+<script src="platform/correlation.js" defer></script>
+<script src="platform/correlation-ui.js" defer></script>
 <script src="platform/app.js" defer></script>
 </head>
 <body>
@@ -122,6 +124,24 @@
     <div class="notice">현재·SAA 비중 합계 100% · 제약: 합계 하한 ≤ 100% ≤ 합계 상한</div>
     </div>
     <div id="cma-panel-correlation" class="model-panel" role="tabpanel" data-cma-panel="correlation" aria-labelledby="cma-tab-correlation" hidden>
+      <article class="panel correlation-timeseries">
+        <div class="panel-head"><h2>Time series</h2><span id="correlation-source" class="subtle-tag"></span></div>
+        <div class="correlation-controls">
+          <label>시계열 1<select id="correlation-first" disabled><option>ACWI_TR</option></select></label>
+          <label>시계열 2<select id="correlation-second" disabled><option>LEGATRUU</option></select></label>
+          <label>시작일<input id="correlation-start" type="date" disabled></label>
+          <label>종료일<input id="correlation-end" type="date" disabled></label>
+          <label>이동 구간<select id="correlation-window" disabled><option value="20">20개 관측치</option><option value="60" selected>60개 관측치</option><option value="120">120개 관측치</option><option value="252">252개 관측치</option></select></label>
+          <button id="correlation-reset" class="button small" disabled>기본값</button>
+        </div>
+        <div id="correlation-series-error" class="notice error compact" role="status" hidden></div>
+        <div id="correlation-stats" class="correlation-stats" aria-live="polite"></div>
+        <div id="correlation-series-head" class="panel-head correlation-subhead"><h3>지수 비교</h3><span class="subtle-tag">시작 100</span></div>
+        <div id="correlation-legend" class="reference-legend"></div>
+        <div id="correlation-series-chart" class="chart correlation-chart"></div>
+        <div id="correlation-rolling-head" class="panel-head correlation-subhead"><h3>이동상관계수</h3><span id="correlation-rolling-status" class="subtle-tag"></span></div>
+        <div id="correlation-rolling-chart" class="chart correlation-chart"></div>
+      </article>
       <article class="panel"><div class="panel-head"><h2>상관계수</h2><span id="cma-correlation-badge" class="badge assumption">입력·추정 가정</span></div><div class="table-scroll" id="correlation-table"></div></article>
       <article class="panel"><div class="panel-head"><h2>공분산행렬</h2><span class="subtle-tag">연율 · %²</span></div><div id="covariance-error" class="notice error compact" role="alert" hidden></div><div class="table-scroll" id="covariance-table" aria-live="polite"></div></article>
       <article class="panel"><div class="panel-head"><h2>레퍼런스 상관계수</h2><span id="reference-correlation-period" class="subtle-tag">월수익률 · 관측 상관계수</span></div><div class="table-scroll" id="reference-correlation" aria-live="polite"></div></article>
