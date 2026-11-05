@@ -90,6 +90,69 @@ function near(actual,expected,label) {
 function format(value) {
  return value.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+// Independent endpoint arithmetic: asset wealth is the ratio of endpoint levels;
+// rebalanced portfolio wealth is the product of monthly weighted gross returns.
+// Do not use CollaboReference to derive the UI's expected numbers.
+const referenceSnapshot=JSON.parse(fs.readFileSync(path.join(root,'docs/platform/reference-data.json'),'utf8'));
+function expectedReference(weight=.6,basis='local',months=120) {
+ const asOf=new Date(referenceSnapshot.source.asOf+'T00:00:00Z');
+ const monthEnd=new Date(Date.UTC(asOf.getUTCFullYear(),asOf.getUTCMonth()+1,0));
+ while(monthEnd.getUTCDay()===0||monthEnd.getUTCDay()===6)monthEnd.setUTCDate(monthEnd.getUTCDate()-1);
+ const cutoff=asOf<monthEnd?new Date(Date.UTC(asOf.getUTCFullYear(),asOf.getUTCMonth(),0)):monthEnd;
+ const complete=referenceSnapshot.observations.filter(row=>row[0]<=cutoff.toISOString().slice(0,10));
+ const endpoints=months?complete.slice(-(months+1)):complete;
+ assert.ok(endpoints.length>24,'reference fixture needs at least 24 complete monthly returns');
+ const monthIds=endpoints.map(row=>Number(row[0].slice(0,4))*12+Number(row[0].slice(5,7)));
+ monthIds.slice(1).forEach((month,i)=>assert.equal(month,monthIds[i]+1,'reference fixture has a monthly gap'));
+ const equity=row=>row[1]*(basis==='krw'?row[3]:1),origin=endpoints[0];
+ let wealth=1;
+ const returns=[],points=[{date:origin[0],values:[100,100,100]}];
+ for(let i=1;i<endpoints.length;i++) {
+  const previous=endpoints[i-1],current=endpoints[i];
+  const gross=weight*equity(current)/equity(previous)+(1-weight)*current[2]/previous[2];
+  returns.push(gross-1);wealth*=gross;
+  points.push({date:current[0],values:[100*equity(current)/equity(origin),100*current[2]/origin[2],100*wealth]});
+ }
+ const average=returns.reduce((sum,value)=>sum+value,0)/returns.length;
+ const annualVol=Math.sqrt(12*returns.reduce((sum,value)=>sum+(value-average)**2,0)/(returns.length-1));
+ return {expectedReturn:12*average,annualVol,cagr:wealth**(12/returns.length)-1,points,returns};
+}
+function assertReferenceMetrics(expected) {
+ const values=[...document.querySelectorAll('#reference-metrics .metric')].map(el=>el.firstChild.textContent);
+ assert.deepEqual(values,[expected.expectedReturn,expected.annualVol,expected.cagr].map(value=>format(value*100)));
+}
+// linkedom has no SVG layout. Use a scaled, translated screen transform so
+// pointer lookup is checked in screen coordinates, including letterboxing.
+function referencePlot() {
+ const plot=document.querySelector('#reference-chart svg');
+ const matrix={a:1.5,d:1.5,e:140,f:80,inverse(){return {a:1/this.a,d:1/this.d,e:-this.e/this.a,f:-this.f/this.d};}};
+ plot.getScreenCTM=()=>matrix;
+ plot.createSVGPoint=()=>({x:0,y:0,matrixTransform(m){return {x:this.x*m.a+m.e,y:this.y*m.d+m.f};}});
+ document.querySelector('#reference-chart').getBoundingClientRect=()=>({left:100,top:80,width:1190,height:390});
+ Object.defineProperty(document.querySelector('#reference-tooltip'),'offsetWidth',{value:300,configurable:true});
+ return plot;
+}
+function referenceKey(key) {
+ const event=new dom.Event('keydown',{bubbles:true,cancelable:true});
+ Object.defineProperty(event,'key',{value:key});
+ referencePlot().dispatchEvent(event);
+ return event;
+}
+function referencePointer(x,y=100,type='pointermove') {
+ const event=new dom.Event(type,{bubbles:true});
+ Object.assign(event,{clientX:140+1.5*x,clientY:80+1.5*y});
+ referencePlot().dispatchEvent(event);
+}
+function assertReferenceTooltip(point) {
+ const tooltip=document.querySelector('#reference-tooltip');
+ assert.ok(tooltip&&!tooltip.hidden,'selected point should have a visible tooltip');
+ assert.equal(tooltip.querySelector('[data-reference-date]').textContent,point.date,'tooltip date');
+ ['equity','bond','reference'].forEach((key,i)=>{
+  assert.equal(tooltip.querySelector('[data-reference-value="'+key+'"]').textContent,format(point.values[i]),key+' tooltip index');
+  assert.equal(tooltip.querySelector('[data-reference-return="'+key+'"]').textContent,format(point.values[i]-100)+'%',key+' tooltip cumulative return');
+ });
+ assert.equal(document.querySelector('[data-reference-crosshair]').getAttribute('visibility'),'visible');
+}
 function assertCovariance(state) {
  const n=state.assets.length;
  assert.equal(document.querySelector('#covariance-error').hidden,true);
@@ -150,28 +213,60 @@ function dragTab(from,to,commit=true) {
  const previousCma=new dom.Event('keydown',{bubbles:true,cancelable:true});Object.defineProperty(previousCma,'key',{value:'ArrowLeft'});document.querySelector('#cma-tab-reference').dispatchEvent(previousCma);assertSubtab('cma','correlation');
  click('[data-tab="cma"]');click('[data-cma-tab="reference"]');assertSubtab('cma','reference');
  assert.equal(document.getElementById('cma-panel-correlation').hidden,true);
- assert.ok(document.getElementById('reference-metrics').textContent.includes('9.76'));
- assert.ok(document.getElementById('reference-metrics').textContent.includes('9.72'));
+ assert.equal(referenceSnapshot.source.series.equity.label,'ACWI_TR','reference calculations must use the ACWI snapshot');
+ const defaultReference=expectedReference();
+ assertReferenceMetrics(defaultReference);
+ assert.ok(document.getElementById('reference-assets').textContent.includes('ACWI_TR'));
+ assert.ok(!document.getElementById('reference-assets').textContent.includes('S&P500'));
  assert.equal(document.querySelectorAll('#reference-correlation .selected-col').length,7);
  assert.ok(document.getElementById('reference-correlation').textContent.includes('레퍼런스'));
- assert.ok(document.querySelector('#reference-chart svg'));
+ assert.equal(document.getElementById('cma-panel-reference').firstElementChild.id,'reference-chart-panel','cumulative chart must lead the tab');
+ assert.equal(document.getElementById('reference-chart-panel').hidden,false);
+ assert.equal(document.querySelector('#reference-chart svg').getAttribute('tabindex'),'0','chart supports keyboard inspection');
+ assert.ok(document.querySelector('#reference-tooltip').hidden,'tooltip starts hidden');
+ referenceKey('Home');assertReferenceTooltip(defaultReference.points[0]);
+ referenceKey('ArrowRight');assertReferenceTooltip(defaultReference.points[1]);
+ referenceKey('End');assertReferenceTooltip(defaultReference.points.at(-1));
+ referenceKey('ArrowLeft');assertReferenceTooltip(defaultReference.points.at(-2));
+ referenceKey('Escape');assert.ok(document.querySelector('#reference-tooltip').hidden,'Escape dismisses tooltip');
+ assert.equal(document.querySelector('[data-reference-crosshair]').getAttribute('visibility'),'hidden');
+ referencePointer(58.1);assertReferenceTooltip(defaultReference.points[0]);
+ referencePointer(388);assertReferenceTooltip(defaultReference.points[Math.round((defaultReference.points.length-1)/2)]);
+ referencePointer(717.9,100,'pointerdown');assertReferenceTooltip(defaultReference.points.at(-1));
+ referencePointer(719);assert.ok(document.querySelector('#reference-tooltip').hidden,'outside plot dismisses tooltip');
+ referencePointer(388);referencePlot().dispatchEvent(new dom.Event('pointerleave'));
+ assert.ok(document.querySelector('#reference-tooltip').hidden,'pointer exit dismisses tooltip');
+ referencePlot().dispatchEvent(new dom.Event('focus'));assertReferenceTooltip(defaultReference.points[Math.round((defaultReference.points.length-1)/2)]);
+ referencePlot().dispatchEvent(new dom.Event('blur'));assert.ok(document.querySelector('#reference-tooltip').hidden,'blur dismisses tooltip');
  const referenceInput=(id,value)=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new dom.Event('input',{bubbles:true}));};
+ referenceKey('End');
  referenceInput('reference-equity','100');assert.equal(document.getElementById('reference-bond').value,'0.00');
- assert.ok(document.getElementById('reference-metrics').textContent.includes('15.51'));
+ assertReferenceMetrics(expectedReference(1));
+ assert.ok(document.querySelector('#reference-tooltip').hidden,'weight changes dismiss old tooltip');
+ referenceKey('End');assertReferenceTooltip(expectedReference(1).points.at(-1));
  referenceInput('reference-bond','100');assert.equal(document.getElementById('reference-equity').value,'0.00');
- assert.ok(document.getElementById('reference-metrics').textContent.includes('1.15'));
+ assertReferenceMetrics(expectedReference(0));
  referenceInput('reference-equity','');assert.equal(document.getElementById('reference-results').hidden,true);
+ assert.equal(document.getElementById('reference-chart-panel').hidden,true,'invalid weights hide old chart');
+ assert.equal(document.querySelector('#reference-chart svg'),null,'invalid weights clear hover targets');
+ assert.ok(!document.querySelector('#reference-tooltip')||document.querySelector('#reference-tooltip').hidden,'invalid weights clear tooltip');
  assert.equal(document.getElementById('reference-csv').disabled,true);assert.ok(document.getElementById('reference-correlation').textContent.includes('미산출'));
  referenceInput('reference-equity','101');assert.equal(document.getElementById('reference-results').hidden,true);
- click('#reference-reset');assert.ok(document.getElementById('reference-metrics').textContent.includes('9.76'));
+ click('#reference-reset');assertReferenceMetrics(defaultReference);
  const refBasis=document.getElementById('reference-basis');refBasis.value='krw';change(refBasis);
- assert.ok(document.getElementById('reference-metrics').textContent.includes('10.95'));
- assert.ok(document.getElementById('reference-metrics').textContent.includes('8.91'));
+ assertReferenceMetrics(expectedReference(.6,'krw'));
+ referenceKey('End');assertReferenceTooltip(expectedReference(.6,'krw').points.at(-1));
  const refPeriod=document.getElementById('reference-lookback');refPeriod.value='60';change(refPeriod);
- assert.ok(document.getElementById('reference-metrics').textContent.includes('10.38'));
+ const krw60=expectedReference(.6,'krw',60);assertReferenceMetrics(krw60);
+ assert.equal(document.querySelectorAll('#reference-tooltip').length,1,'rerenders must not duplicate tooltip');
+ assert.ok(document.querySelector('#reference-tooltip').hidden,'period change clears prior selection');
+ referenceKey('Home');assertReferenceTooltip(krw60.points[0]);
+ referenceKey('End');assertReferenceTooltip(krw60.points.at(-1));
  click('#reference-csv');const refRows=csvRows(await downloads.at(-1).text());assert.equal(refRows.length,61);
- assert.equal(refRows[1][3],'krw');assert.equal(refRows[1][7],'60');assert.equal(refRows.at(-1)[11],'2026-09-30');
- assert.ok(Math.abs(Number(refRows[1][8])-.10376050346117967)<1e-12);
+ assert.equal(refRows[1][3],'krw');assert.equal(refRows[1][7],'60');assert.equal(refRows.at(-1)[11],krw60.points.at(-1).date);
+ near(refRows[1][8],krw60.expectedReturn,'reference CSV expected return');
+ near(refRows[1][9],krw60.annualVol,'reference CSV annual volatility');
+ near(refRows.at(-1)[15],krw60.points.at(-1).values[2]/100-1,'reference CSV terminal cumulative return');
  click('#save-scenario');referenceInput('reference-equity','25');click('#load-scenario');
  assert.equal(document.getElementById('reference-equity').value,'60.00');assert.equal(document.getElementById('reference-basis').value,'krw');
  click('#reset-scenario');assert.equal(document.getElementById('reference-lookback').value,'120');assert.equal(document.getElementById('reference-basis').value,'local');
@@ -738,5 +833,5 @@ function dragTab(from,to,commit=true) {
  const exportedCustom=customRisk.find(row=>row.portfolio==='custom');
  assert.equal(performanceValue('marketVaR'),(Number(exportedCustom.market_var_loss_fraction)*100).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%','custom risk CSV/display mismatch');
  assert.ok(fetches.every(url=>url.startsWith('data/')||url==='platform/reference-data.json'),'unexpected external fetch');
- console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,cmaCorrelationTab:true,covarianceUnitsAndValidation:true,referencePortfolio:true,legacyScenarioMigration:true,targetReturnConstraints:true,targetInfeasibilityRecovery:true,targetScenarioPersistence:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
+ console.log(JSON.stringify({result:'PASS',sixTabs:true,overviewCards:[5,4,3],modelSubtabs:true,monitorCards:true,comparisonCSV:true,sharedValidation:true,mcFailureIsolation:true,tabDragAndKeyboard:true,tabPersistence:true,allocationSVG:true,fxSVG:true,hedgeCurrencies:4,cmaAssets:8,cmaCorrelationTab:true,covarianceUnitsAndValidation:true,referencePortfolio:true,referenceHover:true,referenceChartFirst:true,legacyScenarioMigration:true,targetReturnConstraints:true,targetInfeasibilityRecovery:true,targetScenarioPersistence:true,liquidAssetEditing:true,zeroVolatilityLiquidPortfolio:true,storage:true,downloads:downloads.length,fetches:fetches.length}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
