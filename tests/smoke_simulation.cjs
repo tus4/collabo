@@ -35,7 +35,7 @@ function near(a,b,label){assert.ok(Math.abs(a-b)<1e-10,`${label}: ${a} != ${b}`)
 (async()=>{
  const h=await boot();const {$,document,change,customInputs,customRanges,customChange,click,csv,snapshots,event}=h;
  assert.equal($('error').hidden,true,$('error').textContent);assert.equal($('results').hidden,false);
- assert.match($('quality').textContent,/KBPMABIN.*검증 대기.*잠정/);
+ assert.equal($('quality'),null,'simulation quality annotation is omitted from the UI');
  assert.equal($('basis').value,'local');assert.equal($('mode').value,'correlation');assert.equal($('evaluation').value,'holdout');
  assert.equal($('rf').disabled,true);assert.equal($('performance-end').disabled,false);
  assert.ok(document.querySelector('#cma-panel-correlation #correlation-simulation'),'simulation belongs to Correlation');

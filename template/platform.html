@@ -147,7 +147,6 @@
       <section id="correlation-simulation" class="simulation-section" aria-labelledby="simulation-title">
         <article class="panel simulation-controls-panel">
           <div class="panel-head"><h2 id="simulation-title">Correlation Simulation</h2><button id="simulation-reset" class="button small" type="button" disabled>초기값</button></div>
-          <div id="simulation-quality" class="simulation-quality" role="status">KBPMABIN 원자료 검증 대기 · 잠정 시뮬레이션</div>
           <div class="simulation-controls">
             <label>추정 시작<input id="simulation-start" type="date" disabled></label>
             <label>추정 종료<input id="simulation-end" type="date" disabled></label>
@@ -166,14 +165,14 @@
         </article>
         <div id="simulation-results" hidden>
           <article class="panel">
-            <div id="simulation-table-head" class="panel-head"><h3>상관계수 · 최적 비중</h3><span id="simulation-method" class="subtle-tag"></span></div>
-            <div id="simulation-table" class="table-scroll" aria-live="polite"></div>
-          </article>
-          <article class="panel">
             <div id="simulation-frontier-head" class="panel-head"><h3>Efficient Frontier</h3><span class="subtle-tag">◆ 최적 비중 · 연율 (%)</span></div>
             <div id="simulation-baseline" class="simulation-context"></div>
             <div id="simulation-frontier-legend" class="reference-legend simulation-legend"></div>
             <div id="simulation-frontier" class="chart simulation-chart"></div>
+          </article>
+          <article class="panel">
+            <div id="simulation-table-head" class="panel-head"><h3>상관계수 · 최적 비중</h3><span id="simulation-method" class="subtle-tag"></span></div>
+            <div id="simulation-table" class="table-scroll" aria-live="polite"></div>
           </article>
           <article class="panel">
             <div id="simulation-performance-head" class="panel-head"><h3>Performance Time Series</h3><span id="simulation-performance-period" class="subtle-tag"></span></div>
