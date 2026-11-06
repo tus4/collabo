@@ -232,7 +232,6 @@
         if(data.schemaVersion!==1||!Array.isArray(data.observations)||!data.source?.asOf)throw new Error('시뮬레이션 원자료 형식을 확인하십시오.');
         const status=data.source.quality?.status;
         quality=status==='provisional'?'KBPMABIN 원자료 검증 대기 · 잠정 시뮬레이션':status==='verified'?'원자료 검증 완료':'원자료 검증 상태 미확인';
-        $('quality').textContent=quality;
         $('source').textContent='data_bb.xlsx · D · '+data.source.asOf;
         fields.forEach(name=>$(name).disabled=false);$('reset').disabled=false;$('custom-preset').disabled=false;
         setDefaults();render();
